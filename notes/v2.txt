@@ -1,0 +1,273 @@
+// minimal-atomic-apply : single-file kubectl-apply that rolls back on failure
+// go 1.21      deps: client-go v0.30, sigs.k8s.io/yaml v1.4
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"k8s.io/client-go/rest"
+	"os"
+	"strings"
+	"time"
+
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+/* ------------ tiny helpers ------------ */
+
+func die(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func mustDur(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	die(err)
+	return d
+}
+
+func stripMeta(m map[string]interface{}) {
+	delete(m, "status")
+	if md, ok := m["metadata"].(map[string]interface{}); ok {
+		for _, k := range []string{
+			"managedFields", "resourceVersion",
+			"uid", "creationTimestamp",
+		} {
+			delete(md, k)
+		}
+	}
+}
+
+/* ------------ core data type ------------ */
+
+type applyItem struct {
+	obj      *unstructured.Unstructured
+	gvr      schema.GroupVersionResource
+	dr       dynamic.ResourceInterface
+	existed  bool
+	origJSON []byte
+}
+
+/* ------------ main ------------ */
+
+func main() {
+	var file, ns, timeoutS string
+	flag.StringVar(&file, "f", "", "manifest.yaml")
+	flag.StringVar(&ns, "namespace", "default", "namespace fallback")
+	flag.StringVar(&timeoutS, "timeout", "5m", "readiness timeout")
+	flag.Parse()
+	if file == "" {
+		fmt.Println("usage: atomic-apply -f manifest.yaml [--namespace ns]")
+		os.Exit(1)
+	}
+	timeout := mustDur(timeoutS)
+
+	/* ---- k8s clients ---- */
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
+		die(err)
+	}
+
+	dyn, err := dynamic.NewForConfig(cfg)
+	die(err)
+
+	disc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	die(err)
+	rm := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
+
+	/* ---- parse YAML ---- */
+	objects := mustParse(file)
+
+	/* ---- build apply plan + backup ---- */
+	var plan []applyItem
+	for _, o := range objects {
+		m, err := rm.RESTMapping(o.GroupVersionKind().GroupKind(), o.GroupVersionKind().Version)
+		die(err)
+
+		if m.Scope.Name() == meta.RESTScopeNameNamespace && o.GetNamespace() == "" {
+			o.SetNamespace(ns)
+		}
+		var dr dynamic.ResourceInterface
+		if m.Scope.Name() == meta.RESTScopeNameNamespace {
+			dr = dyn.Resource(m.Resource).Namespace(o.GetNamespace())
+		} else {
+			dr = dyn.Resource(m.Resource)
+		}
+
+		it := applyItem{obj: o, gvr: m.Resource, dr: dr}
+
+		if cur, err := dr.Get(context.TODO(), o.GetName(), metav1.GetOptions{}); err == nil {
+			stripMeta(cur.Object)
+			it.existed = true
+			it.origJSON, _ = json.Marshal(cur.Object)
+		}
+		plan = append(plan, it)
+	}
+
+	/* ---- create / update ---- */
+	fmt.Println("== applying ==")
+	for _, it := range plan {
+		var err error
+		if it.existed {
+			_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
+		} else {
+			_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
+		}
+		if err != nil {
+			fmt.Println("apply error:", err)
+			rollback(plan)
+		}
+	}
+
+	/* ---- wait for readiness ---- */
+	fmt.Println("== waiting ==")
+	if err := waitAll(plan, timeout); err != nil {
+		fmt.Println("timeout / failure:", err)
+		rollback(plan)
+	}
+
+	fmt.Println("✔ success")
+}
+
+/* ------------ YAML parser ------------ */
+
+func mustParse(path string) []*unstructured.Unstructured {
+	b, err := os.ReadFile(path)
+	die(err)
+	docs := strings.Split(string(b), "\n---")
+	dec := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+	var objs []*unstructured.Unstructured
+	for _, d := range docs {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		u := &unstructured.Unstructured{}
+		_, gvk, err := dec.Decode([]byte(d), nil, u)
+		die(err)
+		u.SetGroupVersionKind(*gvk)
+		objs = append(objs, u)
+	}
+	return objs
+}
+
+/* ------------ readiness / rollback ------------ */
+
+func waitAll(plan []applyItem, to time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
+
+	checks := []func() (bool, error){}
+	for _, it := range plan {
+		k := strings.ToLower(it.obj.GetKind())
+		n := it.obj.GetName()
+		switch k {
+		case "deployment":
+			checks = append(checks, func() (bool, error) {
+				o, err := it.dr.Get(ctx, n, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				avail, _, _ := unstructured.NestedInt64(o.Object, "status", "availableReplicas")
+				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
+				return avail >= want, nil
+			})
+		case "statefulset":
+			checks = append(checks, func() (bool, error) {
+				o, err := it.dr.Get(ctx, n, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				ready, _, _ := unstructured.NestedInt64(o.Object, "status", "readyReplicas")
+				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
+				return ready >= want, nil
+			})
+		case "daemonset":
+			checks = append(checks, func() (bool, error) {
+				o, err := it.dr.Get(ctx, n, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				ready, _, _ := unstructured.NestedInt64(o.Object, "status", "numberReady")
+				want, _, _ := unstructured.NestedInt64(o.Object, "status", "desiredNumberScheduled")
+				return ready >= want, nil
+			})
+		case "job":
+			checks = append(checks, func() (bool, error) {
+				o, err := it.dr.Get(ctx, n, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				succ, _, _ := unstructured.NestedInt64(o.Object, "status", "succeeded")
+				comp, _, _ := unstructured.NestedInt64(o.Object, "spec", "completions")
+				return (comp == 0 && succ > 0) || succ >= comp, nil
+			})
+		case "pod":
+			checks = append(checks, func() (bool, error) {
+				o, err := it.dr.Get(ctx, n, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				phase, _, _ := unstructured.NestedString(o.Object, "status", "phase")
+				if phase == "Succeeded" {
+					return true, nil
+				}
+				if phase != "Running" {
+					return false, nil
+				}
+				conds, _, _ := unstructured.NestedSlice(o.Object, "status", "conditions")
+				for _, c := range conds {
+					if m, ok := c.(map[string]interface{}); ok {
+						if m["type"] == "Ready" && m["status"] == "True" {
+							return true, nil
+						}
+					}
+				}
+				return false, nil
+			})
+		}
+	}
+
+	return wait.PollUntilContextCancel(ctx, 2*time.Second, true,
+		func(ctx context.Context) (bool, error) {
+			for _, f := range checks {
+				ok, err := f()
+				if err != nil || !ok {
+					return false, err
+				}
+			}
+			return true, nil
+		})
+}
+
+func rollback(plan []applyItem) {
+	fmt.Println("⟲ rollback")
+	for _, it := range plan {
+		if it.existed {
+			// restore original object
+			obj := &unstructured.Unstructured{}
+			_ = obj.UnmarshalJSON(it.origJSON)
+			_, _ = it.dr.Update(context.TODO(), obj, metav1.UpdateOptions{})
+		} else {
+			// delete newly-created
+			_ = it.dr.Delete(context.TODO(), it.obj.GetName(), metav1.DeleteOptions{})
+		}
+	}
+	fmt.Println("rollback complete")
+	os.Exit(1)
+}
