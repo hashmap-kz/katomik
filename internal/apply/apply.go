@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"sort"
 	"time"
@@ -96,26 +95,25 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 		return err
 	}
 
-	// apply
-	rolledBack, err := applyPlanned(ctx, plan)
-	if rolledBack {
+	// apply (rollback on error)
+	if err := applyPlanned(ctx, plan); err != nil {
 		return err
 	}
 
 	// wait until all resources are ready, rollback otherwise
 	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
-		return rollback(plan)
+		return rollbackAndExit(plan)
 	}
 
 	fmt.Println("✓ success")
 	return nil
 }
 
-func applyPlanned(ctx context.Context, plan []applyItem) (bool, error) {
+func applyPlanned(ctx context.Context, plan []applyItem) error {
 	for _, it := range plan {
 		objJSON, err := json.Marshal(it.obj)
 		if err != nil {
-			return true, rollback(plan)
+			return rollbackAndExit(plan)
 		}
 
 		// SSA: create if absent, patch if present
@@ -130,10 +128,10 @@ func applyPlanned(ctx context.Context, plan []applyItem) (bool, error) {
 			},
 		)
 		if err != nil {
-			return true, rollback(plan)
+			return rollbackAndExit(plan)
 		}
 	}
-	return false, nil
+	return nil
 }
 
 func prepareApplyPlan(
@@ -151,7 +149,7 @@ func prepareApplyPlan(
 			mapper.Reset()
 			m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 			if err != nil {
-				log.Fatalf("could not map GVK %v: %v", gvk, err)
+				return nil, fmt.Errorf("could not map GVK %v: %v", gvk, err)
 			}
 		}
 
@@ -224,8 +222,8 @@ func readDocs(runOpts *AtomicApplyRunOptions) ([]*unstructured.Unstructured, err
 	return allDocs, nil
 }
 
-// rollback to initial state
-func rollback(plan []applyItem) error {
+// rollbackAndExit rollback to initial state and exit with status 1 if success. returns an error otherwise.
+func rollbackAndExit(plan []applyItem) error {
 	fmt.Println("⟲ rollback ...")
 	for _, it := range plan {
 		if it.existed {

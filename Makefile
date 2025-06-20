@@ -11,15 +11,6 @@ ifeq ($(OS),Windows_NT)
 	OUTPUT := $(APP_NAME).exe
 endif
 
-# Lint the code
-.PHONY: lint
-lint:
-	golangci-lint run --output.tab.path=stdout
-
-.PHONY: gen
-gen:
-	go generate ./...
-
 # Build the binary
 .PHONY: build
 build: gen
@@ -30,6 +21,15 @@ build: gen
 install: build
 	@echo "Installing bin/$(OUTPUT) to $(INSTALL_DIR)..."
 	@install -m 0755 bin/$(OUTPUT) $(INSTALL_DIR)
+
+# Lint the code
+.PHONY: lint
+lint:
+	golangci-lint run --output.tab.path=stdout
+
+.PHONY: gen
+gen:
+	go generate ./...
 
 # Run unit tests
 .PHONY: test
