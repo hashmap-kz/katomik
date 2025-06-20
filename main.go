@@ -113,6 +113,7 @@ func newAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 
 	f.StringSliceVarP(&aa.filenames, "filename", "f", nil,
 		"Manifest files, glob patterns, or directories to apply.")
+	//nolint:errcheck
 	_ = cmd.MarkFlagRequired("filename")
 
 	f.BoolVarP(&aa.recursive, "recursive", "R", false,
