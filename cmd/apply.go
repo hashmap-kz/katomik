@@ -25,8 +25,10 @@ func NewAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 	aa := apply.AtomicApplyOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "atomic-apply -f FILE [-f FILE...]",
-		Short: "Atomically apply Kubernetes manifests and roll back on failure",
+		Use:           "atomic-apply -f FILE [-f FILE...]",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Short:         "Atomically apply Kubernetes manifests and roll back on failure",
 		Long: `atomic-apply is a transactional 'kubectl apply'.
 
  * Applies a set of manifests in one transaction
