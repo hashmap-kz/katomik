@@ -12,6 +12,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -61,36 +63,68 @@ type atomicApplyRunOptions struct {
 	applyOpts   atomicApplyOptions
 }
 
+// newAtomicApplyCmd builds the root cobra.Command for atomic-apply.
+//
+// It keeps the important flags (-f/-R/--timeout) at the top and pushes the
+// kubectl connection flags into their own section so the --help text is short
+// and readable.
 func newAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
-	opts := genericclioptions.NewConfigFlags(true)
-	aaOpts := atomicApplyOptions{}
+	cfgFlags := genericclioptions.NewConfigFlags(true) // all kubectl connection flags
+	aa := atomicApplyOptions{}
 
 	cmd := &cobra.Command{
-		Use:           "atomic-apply -f file1.yaml [-f file2.yaml...]",
-		Short:         "Atomically apply Kubernetes manifests and roll back on failure",
-		SilenceUsage:  true, // hide usage on error
-		SilenceErrors: true, // let caller print/log the error once
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if len(aaOpts.filenames) == 0 {
-				log.Fatal("must provide at least one manifest file with --filename/-f")
+		Use:   "atomic-apply -f FILE [-f FILE...]",
+		Short: "Atomically apply Kubernetes manifests and roll back on failure",
+		Long: `atomic-apply is a transactional 'kubectl apply'.
+
+ * Applies a set of manifests in one transaction
+ * Rolls back automatically if any object fails
+ * Waits for all resources to become Ready
+`,
+		Example: `
+  # Apply a single manifest
+  atomic-apply -f deploy.yaml
+
+  # Apply everything under ./manifests, descending into sub-dirs
+  atomic-apply -f ./manifests -R
+
+  # Use a specific kube-context
+  atomic-apply -f app.yaml --context staging
+`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if len(aa.filenames) == 0 {
+				return fmt.Errorf("at least one --filename/-f must be specified")
 			}
 
-			runOpts := &atomicApplyRunOptions{
-				configFlags: opts,
+			run := &atomicApplyRunOptions{
+				configFlags: cfgFlags,
 				streams:     streams,
-				applyOpts:   aaOpts,
+				applyOpts:   aa,
 			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), aaOpts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), aa.timeout)
 			defer cancel()
-			return runApply(ctx, runOpts)
+			return runApply(ctx, run)
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&aaOpts.filenames, "filename", "f", nil, "The files that contain the configurations to apply.")
-	cmd.Flags().DurationVar(&aaOpts.timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
-	cmd.Flags().BoolVarP(&aaOpts.recursive, "recursive", "R", false, "Process the directory used in -f, --filename recursively. Useful when you want to manage related manifests organized within the same directory.")
-	opts.AddFlags(cmd.Flags())
+	// core flags
+	f := cmd.Flags()
+	f.SortFlags = false // preserve insertion order
+
+	f.StringSliceVarP(&aa.filenames, "filename", "f", nil,
+		"Manifest files, glob patterns, or directories to apply.")
+	_ = cmd.MarkFlagRequired("filename")
+
+	f.BoolVarP(&aa.recursive, "recursive", "R", false,
+		"Recurse into directories specified with --filename.")
+	f.DurationVar(&aa.timeout, "timeout", 30*time.Second,
+		"Wait timeout for resources to reach the desired state.")
+
+	// Kubernetes connection flags (own section)
+	conn := pflag.NewFlagSet("Kubernetes connection flags", pflag.ContinueOnError)
+	cfgFlags.AddFlags(conn)
+	cmd.Flags().AddFlagSet(conn)
+
 	return cmd
 }
 
