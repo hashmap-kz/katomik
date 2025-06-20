@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -35,8 +34,6 @@ import (
 	"sigs.k8s.io/cli-utils/pkg/object"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-var dec = yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
 
 type applyItem struct {
 	obj     *unstructured.Unstructured
@@ -86,10 +83,6 @@ func main() {
 	}
 
 	// ---------- parse yaml ----------
-
-	// raw, _ := os.ReadFile(file)
-	// docs := strings.Split(string(raw), "\n---")
-
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatal(err)
@@ -99,6 +92,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// ---------- gen plan ----------
 	var plan []applyItem
 	for _, u := range docs {
 		gvk := u.GroupVersionKind()
