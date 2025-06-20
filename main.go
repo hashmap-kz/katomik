@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -83,10 +82,7 @@ func newAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 
 	cmd.Flags().StringSliceVarP(&aaOpts.filenames, "filename", "f", nil, "The files that contain the configurations to apply.")
 	cmd.Flags().DurationVar(&aaOpts.timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
-	cmd.Flags().BoolVarP(&aaOpts.recursive, "recursive", "R", false, strings.TrimSpace(`
-Process the directory used in -f, --filename recursively. Useful when you want to manage related manifests
-organized within the same directory.
-`))
+	cmd.Flags().BoolVarP(&aaOpts.recursive, "recursive", "R", false, "Process the directory used in -f, --filename recursively. Useful when you want to manage related manifests organized within the same directory.")
 	opts.AddFlags(cmd.Flags())
 	return cmd
 }
