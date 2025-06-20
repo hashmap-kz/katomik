@@ -73,54 +73,75 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 	if err != nil {
 		return err
 	}
-
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
-
 	scheme := runtime.NewScheme()
 	err = clientgoscheme.AddToScheme(scheme)
 	if err != nil {
 		return err
 	}
-
 	crClient, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
 	if err != nil {
 		return err
 	}
 
-	// collect all files as docs
-	var allDocs []*unstructured.Unstructured
-
-	// read from STDIN or files
-	if len(runOpts.ApplyOpts.Filenames) == 1 && runOpts.ApplyOpts.Filenames[0] == "-" {
-		d, err := io.ReadAll(runOpts.Streams.In)
-		if err != nil {
-			return fmt.Errorf("reading stdin: %w", err)
-		}
-		docs, err := readManifests(d)
-		if err != nil {
-			return err
-		}
-		allDocs = append(allDocs, docs...)
-	} else {
-		// resolve all Filenames: expand all glob-patterns, list directories, etc...
-		files, err := resolve.ResolveAllFiles(runOpts.ApplyOpts.Filenames, runOpts.ApplyOpts.Recursive)
-		if err != nil {
-			return err
-		}
-		for _, file := range files {
-			fileContent, err := resolve.ReadFileContent(file)
-			if err != nil {
-				return err
-			}
-			docs, err := readManifests(fileContent)
-			if err != nil {
-				return err
-			}
-			allDocs = append(allDocs, docs...)
-		}
+	// collect all files as unstructured docs
+	allDocs, err := readDocs(runOpts)
+	if err != nil {
+		return err
 	}
 
 	// make plan
+	plan, err := prepareApplyPlan(allDocs, mapper, runOpts, dyn)
+	if err != nil {
+		return err
+	}
+
+	// apply
+	rolledBack, err := applyPlanned(ctx, plan)
+	if rolledBack {
+		return err
+	}
+
+	// wait until all resources are ready, rollback otherwise
+	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
+		return rollback(plan)
+	}
+
+	fmt.Println("✓ success")
+	return nil
+}
+
+func applyPlanned(ctx context.Context, plan []applyItem) (bool, error) {
+	for _, it := range plan {
+		objJSON, err := json.Marshal(it.obj)
+		if err != nil {
+			return true, rollback(plan)
+		}
+
+		// SSA: create if absent, patch if present
+		_, err = it.dr.Patch(
+			ctx,
+			it.obj.GetName(),
+			types.ApplyPatchType,
+			objJSON,
+			metav1.PatchOptions{
+				FieldManager: "atomic-apply",
+				Force:        ptr.To(true), // overwrite last-applied on conflicts
+			},
+		)
+		if err != nil {
+			return true, rollback(plan)
+		}
+	}
+	return false, nil
+}
+
+func prepareApplyPlan(
+	allDocs []*unstructured.Unstructured,
+	mapper *restmapper.DeferredDiscoveryRESTMapper,
+	runOpts *AtomicApplyRunOptions,
+	dyn *dynamic.DynamicClient,
+) ([]applyItem, error) {
 	plan := make([]applyItem, 0, len(allDocs))
 	for _, u := range allDocs {
 		gvk := u.GroupVersionKind()
@@ -160,42 +181,47 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 			stripMeta(cur.Object)            // only for the backup
 			it.backup, err = json.Marshal(cur.Object)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 		plan = append(plan, it)
 	}
+	return plan, nil
+}
 
-	// apply
-	for _, it := range plan {
-		objJSON, jErr := json.Marshal(it.obj)
-		if jErr != nil {
-			return rollback(plan)
-		}
+func readDocs(runOpts *AtomicApplyRunOptions) ([]*unstructured.Unstructured, error) {
+	var allDocs []*unstructured.Unstructured
 
-		// SSA: create if absent, patch if present
-		_, err = it.dr.Patch(
-			ctx,
-			it.obj.GetName(),
-			types.ApplyPatchType,
-			objJSON,
-			metav1.PatchOptions{
-				FieldManager: "atomic-apply",
-				Force:        ptr.To(true), // overwrite last-applied on conflicts
-			},
-		)
+	// read from STDIN or files
+	if len(runOpts.ApplyOpts.Filenames) == 1 && runOpts.ApplyOpts.Filenames[0] == "-" {
+		d, err := io.ReadAll(runOpts.Streams.In)
 		if err != nil {
-			return rollback(plan)
+			return nil, fmt.Errorf("reading stdin: %w", err)
+		}
+		docs, err := readManifests(d)
+		if err != nil {
+			return nil, err
+		}
+		allDocs = append(allDocs, docs...)
+	} else {
+		// resolve all Filenames: expand all glob-patterns, list directories, etc...
+		files, err := resolve.ResolveAllFiles(runOpts.ApplyOpts.Filenames, runOpts.ApplyOpts.Recursive)
+		if err != nil {
+			return nil, err
+		}
+		for _, file := range files {
+			fileContent, err := resolve.ReadFileContent(file)
+			if err != nil {
+				return nil, err
+			}
+			docs, err := readManifests(fileContent)
+			if err != nil {
+				return nil, err
+			}
+			allDocs = append(allDocs, docs...)
 		}
 	}
-
-	// wait until all resources are ready, rollback otherwise
-	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
-		return rollback(plan)
-	}
-
-	fmt.Println("✓ success")
-	return nil
+	return allDocs, nil
 }
 
 // rollback to initial state
