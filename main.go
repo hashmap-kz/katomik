@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,31 +11,29 @@ import (
 	"log"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/aggregator"
-
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/clientcmd"
+
 	"sigs.k8s.io/cli-utils/pkg/kstatus/polling"
+	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/aggregator"
 	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/collector"
 	pollEvent "sigs.k8s.io/cli-utils/pkg/kstatus/polling/event"
 	kstatus "sigs.k8s.io/cli-utils/pkg/kstatus/status"
 	"sigs.k8s.io/cli-utils/pkg/object"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 var dec = yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
@@ -87,24 +86,32 @@ func main() {
 	}
 
 	// ---------- parse yaml ----------
-	raw, _ := os.ReadFile(file)
-	docs := strings.Split(string(raw), "\n---")
-	var plan []applyItem
 
-	for _, d := range docs {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
-		u := &unstructured.Unstructured{}
-		_, gvk, _ := dec.Decode([]byte(d), nil, u)
-		u.SetGroupVersionKind(*gvk)
+	// raw, _ := os.ReadFile(file)
+	// docs := strings.Split(string(raw), "\n---")
+
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	docs, err := readManifests(raw)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var plan []applyItem
+	for _, u := range docs {
+		gvk := u.GroupVersionKind()
 
 		m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
 			mapper.Reset()
-			m, _ = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			if err != nil {
+				log.Fatalf("could not map GVK %v: %v", gvk, err)
+			}
 		}
+
 		var dr dynamic.ResourceInterface
 		if m.Scope.Name() == meta.RESTScopeNameNamespace {
 			if u.GetNamespace() == "" {
@@ -274,4 +281,23 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector
 				first.Status)
 		}
 	}
+}
+
+func readManifests(data []byte) ([]*unstructured.Unstructured, error) {
+	docs := []*unstructured.Unstructured{}
+	stream := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
+	for {
+		obj := &unstructured.Unstructured{}
+		err := stream.Decode(obj)
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, err
+		}
+		if obj.Object != nil && len(obj.Object) > 0 {
+			docs = append(docs, obj)
+		}
+	}
+	return docs, nil
 }
