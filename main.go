@@ -43,7 +43,7 @@ type applyItem struct {
 }
 
 func main() {
-	// ---------- CLI ----------
+	// CLI
 	var file, ns string
 	var toStr string
 	flag.StringVar(&file, "f", "", "manifest.yaml")
@@ -54,9 +54,14 @@ func main() {
 		fmt.Println("usage: atomic-apply -f manifest.yaml")
 		os.Exit(1)
 	}
-	timeout, _ := time.ParseDuration(toStr)
 
-	// ---------- clients ----------
+	// parse timeout
+	timeout, err := time.ParseDuration(toStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// init clients
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
@@ -72,17 +77,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
 
 	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
+	err = clientgoscheme.AddToScheme(scheme)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	crClient, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// ---------- parse yaml ----------
+	// parse yaml
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatal(err)
@@ -92,8 +101,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// ---------- gen plan ----------
-	var plan []applyItem
+	// gen plan
+	plan := make([]applyItem, 0, len(docs))
 	for _, u := range docs {
 		gvk := u.GroupVersionKind()
 
@@ -117,16 +126,19 @@ func main() {
 		}
 
 		it := applyItem{obj: u, dr: dr}
-		// ---- existence + backup
+		// existence + backup
 		if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
 			it.existed = true
 			stripMeta(cur.Object)
-			it.backup, _ = json.Marshal(cur.Object)
+			it.backup, err = json.Marshal(cur.Object)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 		plan = append(plan, it)
 	}
 
-	// ---------- apply ----------
+	// apply
 	for _, it := range plan {
 		var err error
 		if it.existed {
@@ -139,7 +151,7 @@ func main() {
 		}
 	}
 
-	// ---------- wait ----------
+	// wait until all resources are ready, rollback otherwise
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
@@ -149,24 +161,33 @@ func main() {
 	fmt.Println("✓ success")
 }
 
-/* ---- rollback ---- */
+// rollback to initial state
 func rollback(plan []applyItem) {
 	fmt.Println("⟲ rollback …")
 	for _, it := range plan {
 		if it.existed {
 			// restore previous JSON
 			u := &unstructured.Unstructured{}
-			_ = u.UnmarshalJSON(it.backup)
-			_, _ = it.dr.Update(context.TODO(), u, metav1.UpdateOptions{})
+			err := u.UnmarshalJSON(it.backup)
+			if err != nil {
+				log.Fatal(err)
+			}
+			_, err = it.dr.Update(context.TODO(), u, metav1.UpdateOptions{})
+			if err != nil {
+				log.Fatal(err)
+			}
 		} else {
-			_ = it.dr.Delete(context.TODO(), it.obj.GetName(), metav1.DeleteOptions{})
+			err := it.dr.Delete(context.TODO(), it.obj.GetName(), metav1.DeleteOptions{})
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	fmt.Println("rollback complete")
 	os.Exit(1)
 }
 
-/* ---- util ---- */
+// stripMeta removes undesired properties
 func stripMeta(o map[string]interface{}) {
 	delete(o, "status")
 	if m, ok := o["metadata"].(map[string]interface{}); ok {
@@ -188,7 +209,7 @@ func waitStatus(
 	defer cancel()
 
 	// 1. Convert to ObjMetadata list
-	var resources []object.ObjMetadata
+	resources := make([]object.ObjMetadata, 0, len(plan))
 	for _, it := range plan {
 		// You could decode and skip paused Deployments here if desired
 		id, err := object.RuntimeToObjMeta(it.obj)
@@ -289,7 +310,7 @@ func readManifests(data []byte) ([]*unstructured.Unstructured, error) {
 			}
 			return nil, err
 		}
-		if obj.Object != nil && len(obj.Object) > 0 {
+		if len(obj.Object) > 0 {
 			docs = append(docs, obj)
 		}
 	}
