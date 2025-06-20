@@ -2,7 +2,9 @@ package resolve
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,6 +13,13 @@ import (
 )
 
 var FileExtensions = []string{".json", ".yaml", ".yml"}
+
+func ReadFileContent(filename string) ([]byte, error) {
+	if isURL(filename) {
+		return readRemoteFileContent(filename)
+	}
+	return os.ReadFile(filename)
+}
 
 //nolint:revive
 func ResolveAllFiles(filenames []string, recursive bool) ([]string, error) {
@@ -32,7 +41,7 @@ func resolveFilenamesForPatterns(path string, recursive bool) ([]string, error) 
 
 	// Check if the path is a URL
 
-	if IsURL(path) {
+	if isURL(path) {
 		// Add URL directly to results
 		results = append(results, path)
 	} else if strings.Contains(path, "*") {
@@ -79,7 +88,7 @@ func resolveFilenamesForPatterns(path string, recursive bool) ([]string, error) 
 	return results, nil
 }
 
-func IsURL(s string) bool {
+func isURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && u.Scheme != "" && u.Host != ""
 }
@@ -95,4 +104,32 @@ func ignoreFile(path string, extensions []string) bool {
 		}
 	}
 	return true
+}
+
+func readRemoteFileContent(inputURL string) ([]byte, error) {
+	// Parse and validate the URL
+	parsedURL, err := url.Parse(inputURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return nil, fmt.Errorf("invalid URL: %s", inputURL)
+	}
+
+	// Make the HTTP GET request
+	response, err := http.Get(parsedURL.String())
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	// Check for HTTP errors
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cannot GET file content from: %s", inputURL)
+	}
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
 }
