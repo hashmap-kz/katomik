@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hashmap-kz/kubectl-atomic-apply/internal/resolve"
 	"log"
 	"os"
 	"sort"
 	"time"
+
+	"github.com/hashmap-kz/kubectl-atomic-apply/internal/resolve"
 
 	"github.com/spf13/cobra"
 

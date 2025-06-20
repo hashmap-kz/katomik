@@ -188,9 +188,9 @@ spec:
             - name: grafana-dashboard-config
               mountPath: /etc/grafana/provisioning/dashboards
               readOnly: true
-            - name: grafana-dashboards
-              mountPath: /var/lib/grafana/dashboards
-              readOnly: true
+            # - name: grafana-dashboards
+            #   mountPath: /var/lib/grafana/dashboards
+            #   readOnly: true
           resources: {}
       volumes:
         - name: grafana-storage
@@ -203,6 +203,6 @@ spec:
         - name: grafana-dashboard-config
           configMap:
             name: grafana-dashboard-config
-        - name: grafana-dashboards
-          configMap:
-            name: grafana-dashboards
+        # - name: grafana-dashboards
+        #   configMap:
+        #     name: grafana-dashboards
