@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"sort"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,39 +43,53 @@ type applyItem struct {
 }
 
 func main() {
-	// CLI
-	var file, ns string
-	var toStr string
-	flag.StringVar(&file, "f", "", "manifest.yaml")
-	flag.StringVar(&ns, "namespace", "default", "fallback ns")
-	flag.StringVar(&toStr, "timeout", "30s", "wait timeout")
-	flag.Parse()
-	if file == "" {
-		fmt.Println("usage: atomic-apply -f manifest.yaml")
+	var (
+		filenames []string
+		namespace string
+		timeout   time.Duration
+	)
+
+	cmd := &cobra.Command{
+		Use:   "atomic-apply -f file1.yaml [-f file2.yaml...]",
+		Short: "Atomically apply Kubernetes manifests and roll back on failure",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(filenames) == 0 {
+				log.Fatal("must provide at least one manifest file with --filename/-f")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := runApply(ctx, filenames, namespace); err != nil {
+				log.Fatalf("apply failed: %v", err)
+			}
+		},
+	}
+
+	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, "Path to one or more manifest files")
+	cmd.Flags().StringVar(&namespace, "namespace", "default", "Fallback namespace")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
+
+	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
 
-	// parse timeout
-	timeout, err := time.ParseDuration(toStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func runApply(ctx context.Context, filenames []string, namespace string) error {
 	// init clients
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	disc, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
@@ -82,86 +97,89 @@ func main() {
 	scheme := runtime.NewScheme()
 	err = clientgoscheme.AddToScheme(scheme)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	crClient, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// parse yaml
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		log.Fatal(err)
-	}
-	docs, err := readManifests(raw)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// gen plan
-	plan := make([]applyItem, 0, len(docs))
-	for _, u := range docs {
-		gvk := u.GroupVersionKind()
-
-		m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	// apply files
+	for _, file := range filenames {
+		// parse given yaml/json
+		raw, err := os.ReadFile(file)
 		if err != nil {
-			mapper.Reset()
-			m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-			if err != nil {
-				log.Fatalf("could not map GVK %v: %v", gvk, err)
-			}
+			return err
 		}
-
-		var dr dynamic.ResourceInterface
-		if m.Scope.Name() == meta.RESTScopeNameNamespace {
-			if u.GetNamespace() == "" {
-				u.SetNamespace(ns)
-			}
-			dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
-		} else {
-			dr = dyn.Resource(m.Resource)
-		}
-
-		it := applyItem{obj: u, dr: dr}
-		// existence + backup
-		if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
-			it.existed = true
-			stripMeta(cur.Object)
-			it.backup, err = json.Marshal(cur.Object)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		plan = append(plan, it)
-	}
-
-	// apply
-	for _, it := range plan {
-		var err error
-		if it.existed {
-			_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
-		} else {
-			_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
-		}
+		docs, err := readManifests(raw)
 		if err != nil {
-			rollback(plan)
+			return err
 		}
+
+		// gen plan
+		plan := make([]applyItem, 0, len(docs))
+		for _, u := range docs {
+			gvk := u.GroupVersionKind()
+
+			m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			if err != nil {
+				mapper.Reset()
+				m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+				if err != nil {
+					log.Fatalf("could not map GVK %v: %v", gvk, err)
+				}
+			}
+
+			var dr dynamic.ResourceInterface
+			if m.Scope.Name() == meta.RESTScopeNameNamespace {
+				if u.GetNamespace() == "" {
+					u.SetNamespace(namespace)
+				}
+				dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
+			} else {
+				dr = dyn.Resource(m.Resource)
+			}
+
+			it := applyItem{obj: u, dr: dr}
+			// existence + backup
+			if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
+				it.existed = true
+				stripMeta(cur.Object)
+				it.backup, err = json.Marshal(cur.Object)
+				if err != nil {
+					return err
+				}
+			}
+			plan = append(plan, it)
+		}
+
+		// apply
+		for _, it := range plan {
+			var err error
+			if it.existed {
+				_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
+			} else {
+				_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
+			}
+			if err != nil {
+				return rollback(plan)
+			}
+		}
+
+		// wait until all resources are ready, rollback otherwise
+		if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
+			return rollback(plan)
+		}
+
+		fmt.Println("✓ success")
 	}
 
-	// wait until all resources are ready, rollback otherwise
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
-		rollback(plan)
-	}
-
-	fmt.Println("✓ success")
+	return nil
 }
 
 // rollback to initial state
-func rollback(plan []applyItem) {
+func rollback(plan []applyItem) error {
 	fmt.Println("⟲ rollback …")
 	for _, it := range plan {
 		if it.existed {
@@ -169,21 +187,26 @@ func rollback(plan []applyItem) {
 			u := &unstructured.Unstructured{}
 			err := u.UnmarshalJSON(it.backup)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			_, err = it.dr.Update(context.TODO(), u, metav1.UpdateOptions{})
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 		} else {
 			err := it.dr.Delete(context.TODO(), it.obj.GetName(), metav1.DeleteOptions{})
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 		}
 	}
+
+	// TODO: revive
+
 	fmt.Println("rollback complete")
 	os.Exit(1)
+
+	return nil
 }
 
 // stripMeta removes undesired properties
