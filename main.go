@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sort"
@@ -360,7 +361,7 @@ func readManifests(data []byte) ([]*unstructured.Unstructured, error) {
 		obj := &unstructured.Unstructured{}
 		err := stream.Decode(obj)
 		if err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, err
