@@ -1,18 +1,23 @@
+// go 1.21   client-go v0.30   sigs.k8s.io/yaml v1.4
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
-	"io"
+	"log"
 	"os"
+	"strings"
 	"time"
+
+	"k8s.io/client-go/rest"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -20,161 +25,209 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-type snapshot struct {
-	gvr  schema.GroupVersionResource
-	ns   string
-	name string
-	obj  *unstructured.Unstructured
+var dec = yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+
+type applyItem struct {
+	obj     *unstructured.Unstructured
+	dr      dynamic.ResourceInterface
+	existed bool
+	backup  []byte
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: atomic-apply manifest.yaml")
+	// ---------- CLI ----------
+	var file, ns string
+	var toStr string
+	flag.StringVar(&file, "f", "", "manifest.yaml")
+	flag.StringVar(&ns, "namespace", "default", "fallback ns")
+	flag.StringVar(&toStr, "timeout", "30s", "wait timeout")
+	flag.Parse()
+	if file == "" {
+		fmt.Println("usage: atomic-apply -f manifest.yaml")
 		os.Exit(1)
 	}
+	timeout, _ := time.ParseDuration(toStr)
 
-	manifestPath := os.Args[1]
-	data, err := os.ReadFile(manifestPath)
-	check(err)
-
-	// Load kubeconfig
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		kubeconfig = clientcmd.RecommendedHomeFile
+	// ---------- clients ----------
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	check(err)
-
 	dyn, err := dynamic.NewForConfig(cfg)
-	check(err)
-
-	disco, err := discovery.NewDiscoveryClientForConfig(cfg)
-	check(err)
-
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disco))
-
-	// Parse manifests
-	objs := parseManifests(bytes.NewReader(data))
-
-	var prev []snapshot
-	ctx := context.Background()
-
-	for _, obj := range objs {
-		gvk := obj.GroupVersionKind()
-		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-		check(err)
-
-		ns := obj.GetNamespace()
-		if ns == "" {
-			ns = "default"
-			obj.SetNamespace(ns)
-		}
-
-		resource := dyn.Resource(mapping.Resource).Namespace(ns)
-		existing, err := resource.Get(ctx, obj.GetName(), metav1.GetOptions{})
-		if err == nil {
-			prev = append(prev, snapshot{
-				gvr:  mapping.Resource,
-				ns:   ns,
-				name: obj.GetName(),
-				obj:  existing.DeepCopy(),
-			})
-			_, err = resource.Update(ctx, obj, metav1.UpdateOptions{})
-		} else {
-			_, err = resource.Create(ctx, obj, metav1.CreateOptions{})
-		}
-
-		if err != nil {
-			fmt.Printf("❌ Failed to apply %s/%s: %v\n", obj.GetKind(), obj.GetName(), err)
-			rollback(ctx, dyn, prev)
-			os.Exit(1)
-		}
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	for _, obj := range objs {
-		if err := waitForReady(ctx, dyn, mapper, obj, 30*time.Second); err != nil {
-			fmt.Printf("⏳ Timeout waiting for %s/%s: %v\n", obj.GetKind(), obj.GetName(), err)
-			rollback(ctx, dyn, prev)
-			os.Exit(1)
-		}
+	disc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
 	}
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
 
-	fmt.Println("✅ All resources applied and ready.")
-}
+	// ---------- parse yaml ----------
+	raw, _ := os.ReadFile(file)
+	docs := strings.Split(string(raw), "\n---")
+	var plan []applyItem
 
-func parseManifests(r io.Reader) []*unstructured.Unstructured {
-	decoder := yaml.NewYAMLOrJSONDecoder(r, 4096)
-	var docs []*unstructured.Unstructured
-
-	for {
-		u := &unstructured.Unstructured{}
-		err := decoder.Decode(u)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error decoding manifest: %v\n", err)
+	for _, d := range docs {
+		d = strings.TrimSpace(d)
+		if d == "" {
 			continue
 		}
-		if u.Object != nil && u.GetKind() != "" {
-			docs = append(docs, u)
-		}
-	}
-	return docs
-}
+		u := &unstructured.Unstructured{}
+		_, gvk, _ := dec.Decode([]byte(d), nil, u)
+		u.SetGroupVersionKind(*gvk)
 
-func rollback(ctx context.Context, dyn dynamic.Interface, prev []snapshot) {
-	fmt.Println("🔁 Rolling back...")
-	for _, s := range prev {
-		res := dyn.Resource(s.gvr).Namespace(s.ns)
-		_, err := res.Update(ctx, s.obj, metav1.UpdateOptions{})
+		m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
-			fmt.Printf("⚠️ Failed to rollback %s/%s: %v\n", s.gvr.Resource, s.name, err)
+			mapper.Reset()
+			m, _ = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		}
+		var dr dynamic.ResourceInterface
+		if m.Scope.Name() == meta.RESTScopeNameNamespace {
+			if u.GetNamespace() == "" {
+				u.SetNamespace(ns)
+			}
+			dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
 		} else {
-			fmt.Printf("✅ Rolled back %s/%s\n", s.gvr.Resource, s.name)
+			dr = dyn.Resource(m.Resource)
+		}
+
+		it := applyItem{obj: u, dr: dr}
+		// ---- existence + backup
+		if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
+			it.existed = true
+			stripMeta(cur.Object)
+			it.backup, _ = json.Marshal(cur.Object)
+		}
+		plan = append(plan, it)
+	}
+
+	// ---------- apply ----------
+	for _, it := range plan {
+		var err error
+		if it.existed {
+			_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
+		} else {
+			_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
+		}
+		if err != nil {
+			rollback(plan)
 		}
 	}
+
+	// ---------- wait ----------
+	if err := waitReady(plan, timeout); err != nil {
+		rollback(plan)
+	}
+	fmt.Println("✓ success")
 }
 
-func waitForReady(ctx context.Context, dyn dynamic.Interface, rm meta.RESTMapper, obj *unstructured.Unstructured, timeout time.Duration) error {
-	gvk := obj.GroupVersionKind()
-	mapping, err := rm.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		return err
-	}
-	ns := obj.GetNamespace()
-	res := dyn.Resource(mapping.Resource).Namespace(ns)
-	name := obj.GetName()
+/* ---- readiness (very short) ---- */
+func waitReady(plan []applyItem, to time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
+	var checks []func() (bool, error)
+	for _, p := range plan {
+		kind := strings.ToLower(p.obj.GetKind())
+		name := p.obj.GetName()
+		switch kind {
+		case "deployment":
+			checks = append(checks, func() (bool, error) {
+				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
 
-	start := time.Now()
-	for {
-		if time.Since(start) > timeout {
-			return fmt.Errorf("timeout exceeded")
-		}
+				gen, _, _ := unstructured.NestedInt64(o.Object, "metadata", "generation")
+				obs, _, _ := unstructured.NestedInt64(o.Object, "status", "observedGeneration")
 
-		u, err := res.Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
+				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
+				updated, _, _ := unstructured.NestedInt64(o.Object, "status", "updatedReplicas")
+				total, _, _ := unstructured.NestedInt64(o.Object, "status", "replicas")
+				avail, _, _ := unstructured.NestedInt64(o.Object, "status", "availableReplicas")
 
-		conds, found, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-		if found {
-			for _, cond := range conds {
-				if m, ok := cond.(map[string]interface{}); ok {
-					if m["type"] == "Available" && m["status"] == "True" {
-						return nil
+				if want == 0 {
+					want = 1
+				} // default when .spec.replicas omitted
+
+				progressOk := (gen == obs) &&
+					(updated == want) &&
+					(total == want) &&
+					(avail == want)
+
+				// Fast-fail if the controller already declared the rollout dead
+				if conds, _, _ := unstructured.NestedSlice(o.Object, "status", "conditions"); conds != nil {
+					for _, c := range conds {
+						if m, ok := c.(map[string]interface{}); ok &&
+							m["type"] == "Progressing" &&
+							m["reason"] == "ProgressDeadlineExceeded" {
+							return false, fmt.Errorf("deployment %s stalled", name)
+						}
 					}
 				}
-			}
-		}
+				return progressOk, nil
+			})
 
-		time.Sleep(2 * time.Second)
+		case "statefulset":
+			checks = append(checks, func() (bool, error) {
+				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				ready, _, _ := unstructured.NestedInt64(o.Object, "status", "readyReplicas")
+				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
+				return ready >= want, nil
+			})
+		case "job":
+			checks = append(checks, func() (bool, error) {
+				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
+				if err != nil {
+					return false, err
+				}
+				succ, _, _ := unstructured.NestedInt64(o.Object, "status", "succeeded")
+				comp, _, _ := unstructured.NestedInt64(o.Object, "spec", "completions")
+				return (comp == 0 && succ > 0) || succ >= comp, nil
+			})
+		}
 	}
+	return wait.PollUntilContextCancel(ctx, 2*time.Second, true,
+		func(ctx context.Context) (bool, error) {
+			for _, f := range checks {
+				ok, err := f()
+				if err != nil || !ok {
+					return false, err
+				}
+			}
+			return true, nil
+		})
 }
 
-func check(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fatal: %v\n", err)
-		os.Exit(1)
+/* ---- rollback ---- */
+func rollback(plan []applyItem) {
+	fmt.Println("⟲ rollback …")
+	for _, it := range plan {
+		if it.existed {
+			// restore previous JSON
+			u := &unstructured.Unstructured{}
+			_ = u.UnmarshalJSON(it.backup)
+			_, _ = it.dr.Update(context.TODO(), u, metav1.UpdateOptions{})
+		} else {
+			_ = it.dr.Delete(context.TODO(), it.obj.GetName(), metav1.DeleteOptions{})
+		}
+	}
+	fmt.Println("rollback complete")
+	os.Exit(1)
+}
+
+/* ---- util ---- */
+func stripMeta(o map[string]interface{}) {
+	delete(o, "status")
+	if m, ok := o["metadata"].(map[string]interface{}); ok {
+		for _, k := range []string{"managedFields", "resourceVersion", "uid", "creationTimestamp"} {
+			delete(m, k)
+		}
 	}
 }
