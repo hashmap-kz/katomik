@@ -1,4 +1,3 @@
-// go 1.21   client-go v0.30   sigs.k8s.io/yaml v1.4
 package main
 
 import (
