@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hashmap-kz/kubectl-atomic-apply/internal/resolve"
 	"log"
 	"os"
 	"sort"
@@ -47,6 +48,7 @@ func main() {
 		filenames []string
 		namespace string
 		timeout   time.Duration
+		recursive bool
 	)
 
 	cmd := &cobra.Command{
@@ -59,22 +61,26 @@ func main() {
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			if err := runApply(ctx, filenames, namespace); err != nil {
+			if err := runApply(ctx, filenames, namespace, recursive); err != nil {
 				log.Fatalf("apply failed: %v", err)
 			}
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, "Path to one or more manifest files")
+	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, " The files that contain the configurations to apply.")
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Fallback namespace")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
+	cmd.Flags().BoolVarP(&recursive, "recursive", "R", false, `
+Process the directory used in -f, --filename recursively. Useful when you want to manage related manifests
+organized within the same directory.
+`)
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func runApply(ctx context.Context, filenames []string, namespace string) error {
+func runApply(ctx context.Context, filenames []string, namespace string, recursive bool) error {
 	// init clients
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
@@ -105,75 +111,82 @@ func runApply(ctx context.Context, filenames []string, namespace string) error {
 		return err
 	}
 
-	// apply files
-	for _, file := range filenames {
-		// parse given yaml/json
-		raw, err := os.ReadFile(file)
+	// resolve all filenames: expand all glob-patterns, list directories, etc...
+	files, err := resolve.ResolveAllFiles(filenames, recursive)
+	if err != nil {
+		return err
+	}
+
+	// collect all files as docs
+	var allDocs []*unstructured.Unstructured
+	for _, file := range files {
+		fileContent, err := resolve.ReadFileContent(file)
 		if err != nil {
 			return err
 		}
-		docs, err := readManifests(raw)
+		docs, err := readManifests(fileContent)
 		if err != nil {
 			return err
 		}
+		allDocs = append(allDocs, docs...)
+	}
 
-		// gen plan
-		plan := make([]applyItem, 0, len(docs))
-		for _, u := range docs {
-			gvk := u.GroupVersionKind()
+	// apply docs
+	plan := make([]applyItem, 0, len(allDocs))
+	for _, u := range allDocs {
+		gvk := u.GroupVersionKind()
 
-			m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			mapper.Reset()
+			m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 			if err != nil {
-				mapper.Reset()
-				m, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-				if err != nil {
-					log.Fatalf("could not map GVK %v: %v", gvk, err)
-				}
-			}
-
-			var dr dynamic.ResourceInterface
-			if m.Scope.Name() == meta.RESTScopeNameNamespace {
-				if u.GetNamespace() == "" {
-					u.SetNamespace(namespace)
-				}
-				dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
-			} else {
-				dr = dyn.Resource(m.Resource)
-			}
-
-			it := applyItem{obj: u, dr: dr}
-			// existence + backup
-			if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
-				it.existed = true
-				stripMeta(cur.Object)
-				it.backup, err = json.Marshal(cur.Object)
-				if err != nil {
-					return err
-				}
-			}
-			plan = append(plan, it)
-		}
-
-		// apply
-		for _, it := range plan {
-			var err error
-			if it.existed {
-				_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
-			} else {
-				_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
-			}
-			if err != nil {
-				return rollback(plan)
+				log.Fatalf("could not map GVK %v: %v", gvk, err)
 			}
 		}
 
-		// wait until all resources are ready, rollback otherwise
-		if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
+		var dr dynamic.ResourceInterface
+		if m.Scope.Name() == meta.RESTScopeNameNamespace {
+			if u.GetNamespace() == "" {
+				u.SetNamespace(namespace)
+			}
+			dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
+		} else {
+			dr = dyn.Resource(m.Resource)
+		}
+
+		it := applyItem{obj: u, dr: dr}
+		// existence + backup
+		if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
+			it.existed = true
+			stripMeta(cur.Object)
+			it.backup, err = json.Marshal(cur.Object)
+			if err != nil {
+				return err
+			}
+		}
+		plan = append(plan, it)
+	}
+
+	// apply
+	for _, it := range plan {
+		var err error
+		if it.existed {
+			_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
+		} else {
+			_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
+		}
+		if err != nil {
 			return rollback(plan)
 		}
-
-		fmt.Println("✓ success")
 	}
+
+	// wait until all resources are ready, rollback otherwise
+	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
+		return rollback(plan)
+	}
+
+	fmt.Println("✓ success")
 
 	return nil
 }
