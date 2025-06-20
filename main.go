@@ -149,7 +149,7 @@ func runApply(ctx context.Context, runOpts *atomicApplyRunOptions) error {
 		allDocs = append(allDocs, docs...)
 	}
 
-	// apply docs
+	// make plan
 	plan := make([]applyItem, 0, len(allDocs))
 	for _, u := range allDocs {
 		gvk := u.GroupVersionKind()
