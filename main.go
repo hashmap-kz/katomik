@@ -4,20 +4,32 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
+
+	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/aggregator"
+
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/cli-utils/pkg/kstatus/polling"
+	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/collector"
+	pollEvent "sigs.k8s.io/cli-utils/pkg/kstatus/polling/event"
+	kstatus "sigs.k8s.io/cli-utils/pkg/kstatus/status"
+	"sigs.k8s.io/cli-utils/pkg/object"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -65,6 +77,14 @@ func main() {
 		log.Fatal(err)
 	}
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(disc))
+
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	crClient, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// ---------- parse yaml ----------
 	raw, _ := os.ReadFile(file)
@@ -119,90 +139,13 @@ func main() {
 	}
 
 	// ---------- wait ----------
-	if err := waitReady(plan, timeout); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
 		rollback(plan)
 	}
+
 	fmt.Println("✓ success")
-}
-
-/* ---- readiness (very short) ---- */
-func waitReady(plan []applyItem, to time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), to)
-	defer cancel()
-	var checks []func() (bool, error)
-	for _, p := range plan {
-		kind := strings.ToLower(p.obj.GetKind())
-		name := p.obj.GetName()
-		switch kind {
-		case "deployment":
-			checks = append(checks, func() (bool, error) {
-				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-
-				gen, _, _ := unstructured.NestedInt64(o.Object, "metadata", "generation")
-				obs, _, _ := unstructured.NestedInt64(o.Object, "status", "observedGeneration")
-
-				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
-				updated, _, _ := unstructured.NestedInt64(o.Object, "status", "updatedReplicas")
-				total, _, _ := unstructured.NestedInt64(o.Object, "status", "replicas")
-				avail, _, _ := unstructured.NestedInt64(o.Object, "status", "availableReplicas")
-
-				if want == 0 {
-					want = 1
-				} // default when .spec.replicas omitted
-
-				progressOk := (gen == obs) &&
-					(updated == want) &&
-					(total == want) &&
-					(avail == want)
-
-				// Fast-fail if the controller already declared the rollout dead
-				if conds, _, _ := unstructured.NestedSlice(o.Object, "status", "conditions"); conds != nil {
-					for _, c := range conds {
-						if m, ok := c.(map[string]interface{}); ok &&
-							m["type"] == "Progressing" &&
-							m["reason"] == "ProgressDeadlineExceeded" {
-							return false, fmt.Errorf("deployment %s stalled", name)
-						}
-					}
-				}
-				return progressOk, nil
-			})
-
-		case "statefulset":
-			checks = append(checks, func() (bool, error) {
-				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-				ready, _, _ := unstructured.NestedInt64(o.Object, "status", "readyReplicas")
-				want, _, _ := unstructured.NestedInt64(o.Object, "spec", "replicas")
-				return ready >= want, nil
-			})
-		case "job":
-			checks = append(checks, func() (bool, error) {
-				o, err := p.dr.Get(ctx, name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-				succ, _, _ := unstructured.NestedInt64(o.Object, "status", "succeeded")
-				comp, _, _ := unstructured.NestedInt64(o.Object, "spec", "completions")
-				return (comp == 0 && succ > 0) || succ >= comp, nil
-			})
-		}
-	}
-	return wait.PollUntilContextCancel(ctx, 2*time.Second, true,
-		func(ctx context.Context) (bool, error) {
-			for _, f := range checks {
-				ok, err := f()
-				if err != nil || !ok {
-					return false, err
-				}
-			}
-			return true, nil
-		})
 }
 
 /* ---- rollback ---- */
@@ -228,6 +171,107 @@ func stripMeta(o map[string]interface{}) {
 	if m, ok := o["metadata"].(map[string]interface{}); ok {
 		for _, k := range []string{"managedFields", "resourceVersion", "uid", "creationTimestamp"} {
 			delete(m, k)
+		}
+	}
+}
+
+// status watcher
+
+func waitStatus(
+	ctx context.Context,
+	plan []applyItem,
+	reader ctrlclient.Reader,
+	mapper meta.RESTMapper,
+) error {
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// 1. Convert to ObjMetadata list
+	var resources []object.ObjMetadata
+	for _, it := range plan {
+		// You could decode and skip paused Deployments here if desired
+		id, err := object.RuntimeToObjMeta(it.obj)
+		if err != nil {
+			return err
+		}
+		resources = append(resources, id)
+	}
+
+	if len(resources) == 0 {
+		fmt.Println("✓ no trackable resources")
+		return nil
+	}
+
+	fmt.Println("⏳ waiting for resources:")
+	for _, id := range resources {
+		fmt.Printf(" - %s\n", id)
+	}
+
+	// 2. Start polling
+	poller := polling.NewStatusPoller(reader, mapper, polling.Options{})
+	eventCh := poller.Poll(cancelCtx, resources, polling.PollOptions{
+		PollInterval: 2 * time.Second,
+	})
+
+	// 3. Start collector with observer
+	statusCollector := collector.NewResourceStatusCollector(resources)
+	done := statusCollector.ListenWithObserver(eventCh, statusObserver(cancel, kstatus.CurrentStatus))
+
+	<-done
+
+	// 4. On error
+	if statusCollector.Error != nil {
+		return statusCollector.Error
+	}
+
+	// 5. Context deadline reached?
+	if ctx.Err() != nil {
+		var errs []error
+		for _, id := range resources {
+			rs := statusCollector.ResourceStatuses[id]
+			if rs != nil && rs.Status != kstatus.CurrentStatus {
+				errs = append(errs, fmt.Errorf("resource not ready: %s (%s)", id.String(), rs.Status))
+			}
+		}
+		errs = append(errs, ctx.Err())
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector.ObserverFunc {
+	return func(c *collector.ResourceStatusCollector, _ pollEvent.Event) {
+		var rss []*pollEvent.ResourceStatus
+		var nonReady []*pollEvent.ResourceStatus
+
+		for _, rs := range c.ResourceStatuses {
+			if rs == nil {
+				continue
+			}
+			if rs.Status == kstatus.UnknownStatus && desired == kstatus.NotFoundStatus {
+				continue
+			}
+			rss = append(rss, rs)
+			if rs.Status != desired {
+				nonReady = append(nonReady, rs)
+			}
+		}
+
+		if aggregator.AggregateStatus(rss, desired) == desired {
+			cancel()
+			return
+		}
+
+		if len(nonReady) > 0 {
+			sort.Slice(nonReady, func(i, j int) bool {
+				return nonReady[i].Identifier.Name < nonReady[j].Identifier.Name
+			})
+			first := nonReady[0]
+			fmt.Printf("[watch] waiting: %s %s → %s\n",
+				first.Identifier.GroupKind.Kind,
+				first.Identifier.Name,
+				first.Status)
 		}
 	}
 }
