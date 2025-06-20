@@ -66,8 +66,10 @@ func newAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 	aaOpts := atomicApplyOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "atomic-apply -f file1.yaml [-f file2.yaml...]",
-		Short: "Atomically apply Kubernetes manifests and roll back on failure",
+		Use:           "atomic-apply -f file1.yaml [-f file2.yaml...]",
+		Short:         "Atomically apply Kubernetes manifests and roll back on failure",
+		SilenceUsage:  true, // hide usage on error
+		SilenceErrors: true, // let caller print/log the error once
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if len(aaOpts.filenames) == 0 {
 				log.Fatal("must provide at least one manifest file with --filename/-f")
