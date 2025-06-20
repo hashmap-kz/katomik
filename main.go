@@ -9,7 +9,11 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strings"
 	"time"
+
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 
 	"github.com/hashmap-kz/kubectl-atomic-apply/internal/resolve"
 
@@ -24,10 +28,7 @@ import (
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-	"k8s.io/client-go/tools/clientcmd"
-
 	"sigs.k8s.io/cli-utils/pkg/kstatus/polling"
 	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/aggregator"
 	"sigs.k8s.io/cli-utils/pkg/kstatus/polling/collector"
@@ -44,51 +45,66 @@ type applyItem struct {
 	backup  []byte
 }
 
-func main() {
-	var (
-		filenames []string
-		namespace string
-		timeout   time.Duration
-		recursive bool
-	)
+type atomicApplyOptions struct {
+	filenames []string
+	timeout   time.Duration
+	recursive bool
+}
+
+type atomicApplyRunOptions struct {
+	configFlags *genericclioptions.ConfigFlags
+	streams     genericiooptions.IOStreams
+	applyOpts   atomicApplyOptions
+}
+
+func newAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
+	opts := genericclioptions.NewConfigFlags(true)
+	aaOpts := atomicApplyOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "atomic-apply -f file1.yaml [-f file2.yaml...]",
 		Short: "Atomically apply Kubernetes manifests and roll back on failure",
-		Run: func(_ *cobra.Command, _ []string) {
-			if len(filenames) == 0 {
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if len(aaOpts.filenames) == 0 {
 				log.Fatal("must provide at least one manifest file with --filename/-f")
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			if err := runApply(ctx, filenames, namespace, recursive); err != nil {
-				log.Fatalf("apply failed: %v", err)
+			runOpts := &atomicApplyRunOptions{
+				configFlags: opts,
+				streams:     streams,
+				applyOpts:   aaOpts,
 			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), aaOpts.timeout)
+			defer cancel()
+			return runApply(ctx, runOpts)
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, "The files that contain the configurations to apply.")
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Fallback namespace")
-	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
-	cmd.Flags().BoolVarP(&recursive, "recursive", "R", false, `
+	cmd.Flags().StringSliceVarP(&aaOpts.filenames, "filename", "f", nil, "The files that contain the configurations to apply.")
+	cmd.Flags().DurationVar(&aaOpts.timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
+	cmd.Flags().BoolVarP(&aaOpts.recursive, "recursive", "R", false, strings.TrimSpace(`
 Process the directory used in -f, --filename recursively. Useful when you want to manage related manifests
 organized within the same directory.
-`)
+`))
+	opts.AddFlags(cmd.Flags())
+	return cmd
+}
 
-	if err := cmd.Execute(); err != nil {
+func main() {
+	streams := genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
+	rootCmd := newAtomicApplyCmd(streams)
+	if err := rootCmd.Execute(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "error executing cmd: %v", err)
 		os.Exit(1)
 	}
 }
 
-func runApply(ctx context.Context, filenames []string, namespace string, recursive bool) error {
+func runApply(ctx context.Context, runOpts *atomicApplyRunOptions) error {
 	// init clients
-	cfg, err := rest.InClusterConfig()
+	cfg, err := runOpts.configFlags.ToRESTConfig()
 	if err != nil {
-		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
@@ -113,7 +129,7 @@ func runApply(ctx context.Context, filenames []string, namespace string, recursi
 	}
 
 	// resolve all filenames: expand all glob-patterns, list directories, etc...
-	files, err := resolve.ResolveAllFiles(filenames, recursive)
+	files, err := resolve.ResolveAllFiles(runOpts.applyOpts.filenames, runOpts.applyOpts.recursive)
 	if err != nil {
 		return err
 	}
@@ -149,7 +165,14 @@ func runApply(ctx context.Context, filenames []string, namespace string, recursi
 		var dr dynamic.ResourceInterface
 		if m.Scope.Name() == meta.RESTScopeNameNamespace {
 			if u.GetNamespace() == "" {
-				u.SetNamespace(namespace)
+				var ns string
+				if runOpts.configFlags.Namespace != nil {
+					ns = *runOpts.configFlags.Namespace
+					if ns == "" {
+						ns = "default"
+					}
+				}
+				u.SetNamespace(ns)
 			}
 			dr = dyn.Resource(m.Resource).Namespace(u.GetNamespace())
 		} else {
