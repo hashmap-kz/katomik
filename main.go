@@ -12,7 +12,7 @@ func main() {
 	streams := genericiooptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
 	rootCmd := cmd.NewAtomicApplyCmd(streams)
 	if err := rootCmd.Execute(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error executing cmd: %v", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error executing cmd: %v\n", err)
 		os.Exit(1)
 	}
 }

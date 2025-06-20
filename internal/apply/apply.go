@@ -87,24 +87,37 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 		return err
 	}
 
-	// resolve all Filenames: expand all glob-patterns, list directories, etc...
-	files, err := resolve.ResolveAllFiles(runOpts.ApplyOpts.Filenames, runOpts.ApplyOpts.Recursive)
-	if err != nil {
-		return err
-	}
-
 	// collect all files as docs
 	var allDocs []*unstructured.Unstructured
-	for _, file := range files {
-		fileContent, err := resolve.ReadFileContent(file)
+
+	// read from STDIN or files
+	if len(runOpts.ApplyOpts.Filenames) == 1 && runOpts.ApplyOpts.Filenames[0] == "-" {
+		d, err := io.ReadAll(runOpts.Streams.In)
 		if err != nil {
-			return err
+			return fmt.Errorf("reading stdin: %w", err)
 		}
-		docs, err := readManifests(fileContent)
+		docs, err := readManifests(d)
 		if err != nil {
 			return err
 		}
 		allDocs = append(allDocs, docs...)
+	} else {
+		// resolve all Filenames: expand all glob-patterns, list directories, etc...
+		files, err := resolve.ResolveAllFiles(runOpts.ApplyOpts.Filenames, runOpts.ApplyOpts.Recursive)
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			fileContent, err := resolve.ReadFileContent(file)
+			if err != nil {
+				return err
+			}
+			docs, err := readManifests(fileContent)
+			if err != nil {
+				return err
+			}
+			allDocs = append(allDocs, docs...)
+		}
 	}
 
 	// make plan
