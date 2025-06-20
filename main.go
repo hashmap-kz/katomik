@@ -12,6 +12,9 @@ import (
 	"sort"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
@@ -43,6 +46,7 @@ type applyItem struct {
 	dr      dynamic.ResourceInterface
 	existed bool
 	backup  []byte
+	rv      string
 }
 
 type atomicApplyOptions struct {
@@ -178,9 +182,11 @@ func runApply(ctx context.Context, runOpts *atomicApplyRunOptions) error {
 
 		it := applyItem{obj: u, dr: dr}
 		// existence + backup
-		if cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{}); err == nil {
+		cur, err := dr.Get(context.TODO(), u.GetName(), metav1.GetOptions{})
+		if err == nil {
 			it.existed = true
-			stripMeta(cur.Object)
+			it.rv = cur.GetResourceVersion() // keep it
+			stripMeta(cur.Object)            // only for the backup
 			it.backup, err = json.Marshal(cur.Object)
 			if err != nil {
 				return err
@@ -191,12 +197,22 @@ func runApply(ctx context.Context, runOpts *atomicApplyRunOptions) error {
 
 	// apply
 	for _, it := range plan {
-		var err error
-		if it.existed {
-			_, err = it.dr.Update(context.TODO(), it.obj, metav1.UpdateOptions{})
-		} else {
-			_, err = it.dr.Create(context.TODO(), it.obj, metav1.CreateOptions{})
+		objJSON, jErr := json.Marshal(it.obj)
+		if jErr != nil {
+			return rollback(plan)
 		}
+
+		// SSA: create if absent, patch if present
+		_, err = it.dr.Patch(
+			ctx,
+			it.obj.GetName(),
+			types.ApplyPatchType,
+			objJSON,
+			metav1.PatchOptions{
+				FieldManager: "atomic-apply",
+				Force:        ptr.To(true), // overwrite last-applied on conflicts
+			},
+		)
 		if err != nil {
 			return rollback(plan)
 		}
@@ -208,13 +224,12 @@ func runApply(ctx context.Context, runOpts *atomicApplyRunOptions) error {
 	}
 
 	fmt.Println("✓ success")
-
 	return nil
 }
 
 // rollback to initial state
 func rollback(plan []applyItem) error {
-	fmt.Println("⟲ rollback …")
+	fmt.Println("⟲ rollback ...")
 	for _, it := range plan {
 		if it.existed {
 			// restore previous JSON
