@@ -1,4 +1,4 @@
-package cmd
+package apply
 
 import (
 	"testing"
