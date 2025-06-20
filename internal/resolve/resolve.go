@@ -12,6 +12,7 @@ import (
 
 var FileExtensions = []string{".json", ".yaml", ".yml"}
 
+//nolint:revive
 func ResolveAllFiles(filenames []string, recursive bool) ([]string, error) {
 	result := []string{}
 	for _, f := range filenames {

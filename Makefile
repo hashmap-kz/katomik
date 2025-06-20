@@ -46,3 +46,13 @@ snapshot:
 test-cov:
 	go test -coverprofile=$(COV_REPORT) ./...
 	go tool cover -html=$(COV_REPORT)
+
+######################################################################
+# Integration tests
+######################################################################
+
+.PHONY: test-integ
+test-integ: build
+	@mv bin/ test/integration
+	@cd test/integration/k8s && bash 00-setup-kind.sh
+	go test -tags=integration -v ./test/integration/... | tee test-integ-fast.log

@@ -106,6 +106,7 @@ func TestStripMeta(t *testing.T) {
 	}
 	stripMeta(obj)
 
+	//nolint:errcheck
 	meta := obj["metadata"].(map[string]interface{})
 	assert.NotContains(t, obj, "status")
 	assert.NotContains(t, meta, "uid")

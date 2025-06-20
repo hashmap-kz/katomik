@@ -55,7 +55,7 @@ func main() {
 	cmd := &cobra.Command{
 		Use:   "atomic-apply -f file1.yaml [-f file2.yaml...]",
 		Short: "Atomically apply Kubernetes manifests and roll back on failure",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			if len(filenames) == 0 {
 				log.Fatal("must provide at least one manifest file with --filename/-f")
 			}
@@ -68,7 +68,7 @@ func main() {
 		},
 	}
 
-	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, " The files that contain the configurations to apply.")
+	cmd.Flags().StringSliceVarP(&filenames, "filename", "f", nil, "The files that contain the configurations to apply.")
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Fallback namespace")
 	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Timeout for resources to become ready")
 	cmd.Flags().BoolVarP(&recursive, "recursive", "R", false, `
