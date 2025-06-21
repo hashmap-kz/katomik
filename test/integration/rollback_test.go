@@ -19,7 +19,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const binPath = "bin/kubectl-atomic-apply" // compiled in advance
+const binPath = "bin/kubectl-atomic_apply" // compiled in advance
 
 func kubeConfig() (*rest.Config, error) {
 	if cfg, err := rest.InClusterConfig(); err == nil {

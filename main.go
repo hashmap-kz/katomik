@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hashmap-kz/kubectl-atomic-apply/cmd"
+	"github.com/hashmap-kz/kubectl-atomic_apply/cmd"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 

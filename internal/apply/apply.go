@@ -41,7 +41,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 
-	"github.com/hashmap-kz/kubectl-atomic-apply/internal/resolve"
+	"github.com/hashmap-kz/kubectl-atomic_apply/internal/resolve"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

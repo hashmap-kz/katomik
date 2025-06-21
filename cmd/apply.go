@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hashmap-kz/kubectl-atomic-apply/internal/apply"
+	"github.com/hashmap-kz/kubectl-atomic_apply/internal/apply"
 
 	"github.com/spf13/pflag"
 
