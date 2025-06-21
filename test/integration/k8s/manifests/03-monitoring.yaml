@@ -1,4 +1,7 @@
+######################################################################
 # prometheus
+######################################################################
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -12,7 +15,7 @@ data:
     scrape_configs:
       - job_name: 'prometheus'
         static_configs:
-          - targets: ['localhost:9090']
+          - targets: [ 'localhost:9090' ]
 
 ---
 apiVersion: v1
@@ -64,7 +67,7 @@ spec:
     spec:
       containers:
         - name: prometheus
-          image: prom/prometheus:latest
+          image: "prom/prometheus:v3.4.1"
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
           ports:
@@ -74,7 +77,7 @@ spec:
               mountPath: /etc/prometheus
             - name: data-volume
               mountPath: /prometheus
-          resources: {}
+          resources: { }
       volumes:
         - name: config-volume
           configMap:
@@ -84,7 +87,10 @@ spec:
             claimName: prometheus-data
             readOnly: false
 
+######################################################################
 # grafana
+######################################################################
+
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -133,6 +139,15 @@ data:
         access: proxy
         url: http://prometheus:9090
         isDefault: true
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        jsonData:
+          maxLines: 1000
 
 ---
 apiVersion: v1
@@ -171,7 +186,7 @@ spec:
     spec:
       containers:
         - name: grafana
-          image: grafana/grafana:latest
+          image: "grafana/grafana:12.0.2"
           ports:
             - containerPort: 3000
           env:
@@ -191,7 +206,7 @@ spec:
             # - name: grafana-dashboards
             #   mountPath: /var/lib/grafana/dashboards
             #   readOnly: true
-          resources: {}
+          resources: { }
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -206,3 +221,571 @@ spec:
         # - name: grafana-dashboards
         #   configMap:
         #     name: grafana-dashboards
+
+######################################################################
+# loki
+######################################################################
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: pgrwl-test
+data:
+  loki.yaml: |
+    auth_enabled: false
+    
+    server:
+      http_listen_port: 3100
+    
+    ingester:
+      wal:
+        dir: "/tmp/wal"
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      chunk_idle_period: 3m
+      chunk_retain_period: 1m
+      max_transfer_retries: 0
+      max_returned_stream_errors: 10
+    
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 168h
+    
+    storage_config:
+      boltdb:
+        directory: /loki/index
+    
+      filesystem:
+        directory: /loki/chunks
+    
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+    
+    chunk_store_config:
+      max_look_back_period: 0s
+    
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 720h    
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: pgrwl-test
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      nodePort: 30267
+  selector:
+    app: loki
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: pgrwl-test
+spec:
+  storageClassName: standard
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: pgrwl-test
+spec:
+  selector:
+    matchLabels:
+      app: loki
+  serviceName: loki
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: "grafana/loki:2.9.15"
+          args:
+            - "-config.file=/etc/loki/loki.yaml"
+          ports:
+            - containerPort: 3100
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: loki-data
+              mountPath: /data/loki
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: loki-data
+          persistentVolumeClaim:
+            claimName: loki-data
+            readOnly: false
+
+######################################################################
+# promtail
+######################################################################
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: pgrwl-test
+  labels:
+    app: promtail
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - watch
+      - list
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+subjects:
+  - kind: ServiceAccount
+    name: promtail
+    namespace: pgrwl-test
+roleRef:
+  kind: ClusterRole
+  name: promtail
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: pgrwl-test
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+      log_level: debug
+    
+    positions:
+      filename: /run/promtail/positions.yaml
+    
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+    
+    scrape_configs:
+      - job_name: system
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: varlogs
+              __path__: /var/log/*log
+    
+      - job_name: kubernetes-pods-name
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_label_app
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_app
+            target_label: __host_
+          - source_labels:
+              - __meta_kubernetes_pod_app
+            target_label: k8s_pod_app
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: k8s_app
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: k8s_namespace_name
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_app
+            target_label: k8s_pod_name
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: k8s_container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+          - replacement: /var/log/pods/*$1/$2/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+      - job_name: kubernetes-pods-name2
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_label_name
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __service__
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: instance
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+      - job_name: kubernetes-pods-app
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - action: drop
+            regex: .+
+            source_labels:
+              - __meta_kubernetes_pod_label_name
+          - source_labels:
+              - __meta_kubernetes_pod_label_app
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __service__
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: instance
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+      - job_name: kubernetes-pods-direct-controllers
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - action: drop
+            regex: .+
+            separator: ""
+            source_labels:
+              - __meta_kubernetes_pod_label_name
+              - __meta_kubernetes_pod_label_app
+          - action: drop
+            regex: ^([0-9a-z-.]+)(-[0-9a-f]{8,10})$
+            source_labels:
+              - __meta_kubernetes_pod_controller_name
+          - source_labels:
+              - __meta_kubernetes_pod_controller_name
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __service__
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: instance
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+      - job_name: kubernetes-pods-indirect-controller
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - action: drop
+            regex: .+
+            separator: ""
+            source_labels:
+              - __meta_kubernetes_pod_label_name
+              - __meta_kubernetes_pod_label_app
+          - action: keep
+            regex: ^([0-9a-z-.]+)(-[0-9a-f]{8,10})$
+            source_labels:
+              - __meta_kubernetes_pod_controller_name
+          - action: replace
+            regex: ^([0-9a-z-.]+)(-[0-9a-f]{8,10})$
+            source_labels:
+              - __meta_kubernetes_pod_controller_name
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __service__
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: instance
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+      - job_name: kubernetes-pods-static
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __meta_kubernetes_pod_annotation_kubernetes_io_config_mirror
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_label_component
+            target_label: __service__
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: __host__
+          - action: drop
+            regex: ^$
+            source_labels:
+              - __service__
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __service__
+            target_label: job
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: instance
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container_name
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_annotation_kubernetes_io_config_mirror
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+    
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: pgrwl-test
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      enableServiceLinks: true
+      securityContext:
+        runAsGroup: 0
+        runAsUser: 0
+      containers:
+        - name: promtail
+          image: "docker.io/grafana/promtail:2.9.15"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/promtail/promtail.yaml"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - mountPath: /run/promtail
+              name: run
+            - mountPath: /var/lib/docker/containers
+              name: containers
+              readOnly: true
+            - mountPath: /var/log/pods
+              name: pods
+              readOnly: true
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: TZ
+              value: Asia/Aqtau
+          ports:
+            - name: http-metrics
+              containerPort: 3101
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - hostPath:
+            path: /run/promtail
+          name: run
+        - hostPath:
+            path: /var/lib/docker/containers
+          name: containers
+        - hostPath:
+            path: /var/log/pods
+          name: pods

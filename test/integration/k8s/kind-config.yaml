@@ -14,13 +14,9 @@ nodes:
       - containerPort: 30265
         hostPort: 30265
         protocol: TCP
-      # minio-ui
+      # loki
       - containerPort: 30267
         hostPort: 30267
-        protocol: TCP
-      # minio-server
-      - containerPort: 30268
-        hostPort: 30268
         protocol: TCP
       # prometheus
       - containerPort: 30269
