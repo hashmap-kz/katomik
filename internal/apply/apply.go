@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -129,11 +130,16 @@ type AtomicApplyRunOptions struct {
 // invoked or rollback itself failed (the latter is included in the returned
 // error chain).
 func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
+	fmt.Println("init clients")
 	// 1. Build REST config & clients
 	cfg, err := runOpts.ConfigFlags.ToRESTConfig()
 	if err != nil {
 		return err
 	}
+	// Tune client QPS/Burst
+	cfg.QPS = 50
+	cfg.Burst = 100
+
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return err
@@ -153,18 +159,21 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 	}
 
 	// 2. Decode all manifest files or stdin
+	fmt.Println("decode manifests")
 	allDocs, err := readDocs(runOpts)
 	if err != nil {
 		return err
 	}
 
 	// 3. Build an apply plan (detect existing objects & backup)
+	fmt.Println("prepare apply plan")
 	plan, err := prepareApplyPlan(allDocs, mapper, runOpts, dyn)
 	if err != nil {
 		return err
 	}
 
 	// 4. Apply objects (SSA Patch or Create) - on *any* error rollback
+	fmt.Println("applying manifests")
 	if err := applyPlanned(ctx, plan); err != nil {
 		return err
 	}
@@ -394,7 +403,12 @@ func waitStatus(
 
 	fmt.Println("⏳ waiting for resources:")
 	for _, id := range resources {
-		fmt.Printf(" - %s\n", id)
+		ns := id.Namespace
+		if ns == "" {
+			ns = "(cluster)"
+		}
+		msg := fmt.Sprintf(" - %s/%s in %s", id.GroupKind.Kind, id.Name, ns)
+		fmt.Println(strings.ToLower(msg))
 	}
 
 	// 2. Start status poller
@@ -459,10 +473,20 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector
 				return nonReady[i].Identifier.Name < nonReady[j].Identifier.Name
 			})
 			first := nonReady[0]
-			fmt.Printf("[watch] waiting: %s %s -> %s\n",
-				first.Identifier.GroupKind.Kind,
-				first.Identifier.Name,
-				first.Status)
+
+			// wait message
+			ns := first.Identifier.Namespace
+			if ns == "" {
+				ns = "(cluster)"
+			}
+			msg := fmt.Sprintf("[watch] waiting: %s/%s in %s -> actualStatus=%s expectedStatus=%s",
+				strings.ToLower(first.Identifier.GroupKind.Kind),
+				strings.ToLower(first.Identifier.Name),
+				ns,
+				first.Status,
+				desired,
+			)
+			fmt.Println(msg)
 		}
 	}
 }
