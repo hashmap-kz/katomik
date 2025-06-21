@@ -265,7 +265,7 @@ data:
     storage_config:
       boltdb:
         directory: /loki/index
-    
+      
       filesystem:
         directory: /loki/chunks
     
@@ -279,7 +279,7 @@ data:
     
     table_manager:
       retention_deletes_enabled: true
-      retention_period: 720h    
+      retention_period: 720h
 
 ---
 apiVersion: v1
@@ -427,7 +427,7 @@ data:
             labels:
               job: varlogs
               __path__: /var/log/*log
-    
+      
       - job_name: kubernetes-pods-name
         kubernetes_sd_configs:
           - role: pod
@@ -478,7 +478,7 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+      
       - job_name: kubernetes-pods-name2
         kubernetes_sd_configs:
           - role: pod
@@ -518,7 +518,7 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+      
       - job_name: kubernetes-pods-app
         kubernetes_sd_configs:
           - role: pod
@@ -562,7 +562,7 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+      
       - job_name: kubernetes-pods-direct-controllers
         kubernetes_sd_configs:
           - role: pod
@@ -612,7 +612,7 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+      
       - job_name: kubernetes-pods-indirect-controller
         kubernetes_sd_configs:
           - role: pod
@@ -664,7 +664,7 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+      
       - job_name: kubernetes-pods-static
         kubernetes_sd_configs:
           - role: pod
@@ -709,7 +709,7 @@ data:
               - __meta_kubernetes_pod_annotation_kubernetes_io_config_mirror
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-    
+
 
 ---
 apiVersion: apps/v1
@@ -789,3 +789,101 @@ spec:
         - hostPath:
             path: /var/log/pods
           name: pods
+
+######################################################################
+# node_exporter
+######################################################################
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: pgrwl-test
+  labels:
+    app: node-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  ports:
+    - port: 9100
+      targetPort: 9100
+      protocol: TCP
+      name: metrics
+  selector:
+    app: node-exporter
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: pgrwl-test
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+      labels:
+        app: node-exporter
+    spec:
+      containers:
+        - name: node-exporter
+          image: "quay.io/prometheus/node-exporter:v1.9.1"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --web.listen-address=[$(HOST_IP)]:9100
+            # custom
+            - --collector.netclass.ignored-devices=^(lo|docker[0-9]|kube-ipvs0|dummy0|veth.+|br\-.+)$
+            - --collector.filesystem.ignored-mount-points=^/(dev|sys|proc|host|etc|var/lib/kubelet|var/lib/docker/.+)($|/)
+            - --collector.filesystem.ignored-fs-types=^(autofs|binfmt_misc|cgroup|configfs|debugfs|devpts|devtmpfs|efivarfs|tmpfs|nsfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|rootfs|rpc_pipefs|securityfs|sysfs|tracefs)$
+            - --collector.diskstats.ignored-devices=^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\d+n\d+p|dm-|sr|nbd)\d+$
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: HOST_IP
+              value: 0.0.0.0
+            - name: TZ
+              value: "Asia/Aqtau"
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
