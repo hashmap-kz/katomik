@@ -130,7 +130,7 @@ type AtomicApplyRunOptions struct {
 // invoked or rollback itself failed (the latter is included in the returned
 // error chain).
 func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
-	fmt.Println("init clients")
+	fmt.Println("✓ Init clients")
 	// 1. Build REST config & clients
 	cfg, err := runOpts.ConfigFlags.ToRESTConfig()
 	if err != nil {
@@ -159,32 +159,33 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 	}
 
 	// 2. Decode all manifest files or stdin
-	fmt.Println("decode manifests")
+	fmt.Println("✓ Decoding manifests")
 	allDocs, err := readDocs(runOpts)
 	if err != nil {
 		return err
 	}
 
 	// 3. Build an apply plan (detect existing objects & backup)
-	fmt.Println("prepare apply plan")
+	fmt.Println("✓ Preparing apply plan")
 	plan, err := prepareApplyPlan(allDocs, mapper, runOpts, dyn)
 	if err != nil {
 		return err
 	}
 
 	// 4. Apply objects (SSA Patch or Create) - on *any* error rollback
-	fmt.Println("applying manifests")
+	fmt.Println("✓ Applying manifests")
 	if err := applyPlanned(ctx, plan); err != nil {
 		return err
 	}
 
 	// 5. Wait until every resource reaches the Current status, else rollback
 	//    (ctx carries the timeout specified by the user)
+	fmt.Println("✓ Waiting")
 	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
 		return rollbackAndExit(plan)
 	}
 
-	fmt.Println("✓ success")
+	fmt.Println("✓ Success")
 	return nil
 }
 
@@ -401,7 +402,7 @@ func waitStatus(
 		return nil
 	}
 
-	fmt.Println("⏳ waiting for resources:")
+	fmt.Println("⏳ Waiting for resources:")
 	for _, id := range resources {
 		ns := id.Namespace
 		if ns == "" {
