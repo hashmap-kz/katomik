@@ -88,6 +88,99 @@ data:
       retention_deletes_enabled: true
       retention_period: 720h
 
+######################################################################
+# alertmanager
+######################################################################
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: pgrwl-test
+data:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      group_interval: 5m
+      group_wait: 10s
+      repeat_interval: 3h
+      group_by: ["..."]
+      receiver: telegram
+      routes:
+        - receiver: telegram
+          continue: True
+    receivers:
+      - name: telegram
+        telegram_configs:
+          - send_resolved: true
+            bot_token: "0"
+            chat_id: 102030405060
+            api_url: "https://api.telegram.org"
+            parse_mode: HTML
+            message: |
+              {{ template "telegram.custom.message" . }}
+    templates:
+      - /etc/alertmanager/templates/*.tmpl
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-template-tg
+  namespace: pgrwl-test
+data:
+  alertmanager-tg.tmpl: |
+    {{ define "title.alert.mbcaas" -}}
+    {{- if eq .Labels.severity "critical"}}
+    <b>🔴 CRITICAL 🔴</b>
+    {{- else if eq .Labels.severity "warning"}}
+    <b>🟡 WARNING 🟡</b>
+    {{- else if eq .Labels.severity "info"}}
+    <b>ℹ️ INFO ℹ️</b>
+    {{- else }}
+    <b>❔ {{ .Labels.severity | toUpper }} ❔</b>
+    {{- end -}}
+    {{- end -}}
+    
+    {{ define "__text_alert_list" }}{{ range . }}
+    {{ if .Labels.alertname }} <b>{{ .Labels.alertname }}</b> {{ end }}
+    {{ template "title.alert.mbcaas" . }}
+    <b>Start:</b> {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+    
+    <b>Labels:</b>
+    {{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}
+    {{ end }}
+    <b>Annotations:</b>
+    {{ range .Annotations.SortedPairs }} - {{ .Name }} = {{ .Value }}
+    {{ end }}
+    {{ end }}{{ end }}
+    
+    {{ define "__text_alert_list_resolved" }}{{ range . }}
+    {{ if .Labels.alertname }} <b>{{ .Labels.alertname }}</b> {{ end }}
+    <b>{{ .Labels.severity | toUpper }}</b>
+    <b>Start:</b> {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+    <b>End:</b> {{ .EndsAt.Format "2006-01-02 15:04:05" }}
+    
+    <b>Labels:</b>
+    {{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}
+    {{ end }}
+    <b>Annotations:</b>
+    {{ range .Annotations.SortedPairs }} - {{ .Name }} = {{ .Value }}
+    {{ end }}
+    {{ end }}{{ end }}
+    
+    {{ define "telegram.custom.message" }}
+    {{ if gt (len .Alerts.Firing) 0 }}
+    🚨🚨 <b>FIRING ALERTS</b> 🚨🚨
+    {{ template "__text_alert_list" .Alerts.Firing }}
+    {{ end }}
+    {{ if gt (len .Alerts.Resolved) 0 }}
+    ✅✅ <b>RESOLVED ALERTS</b> ✅✅
+    {{ template "__text_alert_list_resolved" .Alerts.Resolved }}
+    {{ end }}
+    {{ end }}
 
 ######################################################################
 # promtail

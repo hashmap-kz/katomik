@@ -127,7 +127,7 @@ spec:
               mountPath: /etc/prometheus
             - name: data-volume
               mountPath: /prometheus
-          resources: {}
+          resources: { }
       volumes:
         - name: config-volume
           configMap:
@@ -204,7 +204,7 @@ spec:
             - name: grafana-datasources
               mountPath: /etc/grafana/provisioning/datasources
               readOnly: true
-          resources: {}
+          resources: { }
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -278,7 +278,7 @@ spec:
               mountPath: /etc/loki
             - name: loki-data
               mountPath: /data/loki
-          resources: {}
+          resources: { }
       volumes:
         - name: config
           configMap:
@@ -388,7 +388,7 @@ spec:
             - name: http-metrics
               containerPort: 3101
               protocol: TCP
-          resources: {}
+          resources: { }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -489,7 +489,7 @@ spec:
             - name: metrics
               containerPort: 9100
               protocol: TCP
-          resources: {}
+          resources: { }
           volumeMounts:
             - name: proc
               mountPath: /host/proc
@@ -535,145 +535,145 @@ kind: ClusterRole
 metadata:
   name: kube-state-metrics
 rules:
-  - apiGroups: ["certificates.k8s.io"]
+  - apiGroups: [ "certificates.k8s.io" ]
     resources:
       - certificatesigningrequests
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - configmaps
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["batch"]
+  - apiGroups: [ "batch" ]
     resources:
       - cronjobs
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["apps"]
+  - apiGroups: [ "apps" ]
     resources:
       - daemonsets
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["apps"]
+  - apiGroups: [ "apps" ]
     resources:
       - deployments
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - endpoints
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["autoscaling"]
+  - apiGroups: [ "autoscaling" ]
     resources:
       - horizontalpodautoscalers
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["networking.k8s.io"]
+  - apiGroups: [ "networking.k8s.io" ]
     resources:
       - ingresses
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["batch"]
+  - apiGroups: [ "batch" ]
     resources:
       - jobs
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["coordination.k8s.io"]
+  - apiGroups: [ "coordination.k8s.io" ]
     resources:
       - leases
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - limitranges
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["admissionregistration.k8s.io"]
+  - apiGroups: [ "admissionregistration.k8s.io" ]
     resources:
       - mutatingwebhookconfigurations
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - namespaces
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["networking.k8s.io"]
+  - apiGroups: [ "networking.k8s.io" ]
     resources:
       - networkpolicies
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - nodes
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - persistentvolumeclaims
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - persistentvolumes
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["policy"]
+  - apiGroups: [ "policy" ]
     resources:
       - poddisruptionbudgets
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - pods
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["apps"]
+  - apiGroups: [ "apps" ]
     resources:
       - replicasets
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - replicationcontrollers
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - resourcequotas
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - secrets
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: [""]
+  - apiGroups: [ "" ]
     resources:
       - services
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["apps"]
+  - apiGroups: [ "apps" ]
     resources:
       - statefulsets
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["storage.k8s.io"]
+  - apiGroups: [ "storage.k8s.io" ]
     resources:
       - storageclasses
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["admissionregistration.k8s.io"]
+  - apiGroups: [ "admissionregistration.k8s.io" ]
     resources:
       - validatingwebhookconfigurations
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
-  - apiGroups: ["storage.k8s.io"]
+  - apiGroups: [ "storage.k8s.io" ]
     resources:
       - volumeattachments
-    verbs: ["list", "watch"]
+    verbs: [ "list", "watch" ]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -747,10 +747,92 @@ spec:
           ports:
             - containerPort: 8080
               name: "http"
-          resources: {}
+          resources: { }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
+
+######################################################################
+# alertmanager
+######################################################################
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: pgrwl-test
+  labels:
+    app: alertmanager
+spec:
+  ports:
+    - port: 9093
+      targetPort: http
+      name: http
+  selector:
+    app: alertmanager
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: pgrwl-test
+  labels:
+    app: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: templates
+          configMap:
+            name: alertmanager-template-tg
+      securityContext:
+        fsGroup: 65534
+      containers:
+        - name: alertmanager
+          securityContext:
+            runAsGroup: 65534
+            runAsNonRoot: true
+            runAsUser: 65534
+          image: quay.io/prometheus/alertmanager:v0.28.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: TZ
+              value: Asia/Aqtau
+          args:
+            - --config.file=/etc/alertmanager/config/alertmanager.yaml
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/config
+            - name: templates
+              mountPath: /etc/alertmanager/templates
