@@ -70,7 +70,7 @@ func NewAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 	_ = cmd.MarkFlagRequired("filename")
 
 	f.BoolVarP(&aa.Recursive, "recursive", "R", false, "Recurse into directories specified with --filename.")
-	f.DurationVar(&aa.Timeout, "timeout", 30*time.Second, "Wait timeout for resources to reach the desired state.")
+	f.DurationVar(&aa.Timeout, "timeout", 5*time.Minute, "Wait timeout for resources to reach the desired state.")
 
 	// Kubernetes connection flags (own section)
 	conn := pflag.NewFlagSet("Kubernetes connection flags", pflag.ContinueOnError)
