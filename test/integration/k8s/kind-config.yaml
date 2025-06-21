@@ -14,10 +14,6 @@ nodes:
       - containerPort: 30265
         hostPort: 30265
         protocol: TCP
-      # loki
-      - containerPort: 30267
-        hostPort: 30267
-        protocol: TCP
       # prometheus
       - containerPort: 30269
         hostPort: 30269
