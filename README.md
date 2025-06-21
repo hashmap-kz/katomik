@@ -41,6 +41,13 @@ chmod +x /usr/local/bin/kubectl-atomic_apply
 )
 ```
 
+### Homebrew installation
+
+```bash
+brew tap hashmap-kz/homebrew-tap
+brew install kubectl-atomic_apply
+```
+
 ---
 
 ## Usage
@@ -57,6 +64,10 @@ kubectl atomic-apply -R -f ./deploy/
 
 # Set a custom timeout (default: 5m)
 kubectl atomic-apply --timeout 2m -f ./manifests/
+
+# Process and apply a manifest located on a remote server
+kubectl atomic-apply \
+  -f https://raw.githubusercontent.com/user/repo/refs/heads/master/manifests/deployment.yaml
 ```
 
 ---
@@ -76,6 +87,16 @@ applying manifests
 [watch]    deployment   grafana   pgrwl-test    Unknown    Current
 [watch]    service      grafana   pgrwl-test    Unknown    Current
 ✓ success
+```
+
+---
+
+## Quick Start
+
+```
+cd test/integration/k8s
+bash 00-setup-kind.sh
+kubectl atomic-apply -f manifests/
 ```
 
 ---
