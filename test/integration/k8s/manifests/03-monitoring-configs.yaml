@@ -29,6 +29,7 @@ data:
         jsonData:
           maxLines: 1000
 
+
 ######################################################################
 # loki
 ######################################################################
@@ -88,6 +89,7 @@ data:
       retention_deletes_enabled: true
       retention_period: 720h
 
+
 ######################################################################
 # alertmanager
 ######################################################################
@@ -143,12 +145,12 @@ data:
     <b>❔ {{ .Labels.severity | toUpper }} ❔</b>
     {{- end -}}
     {{- end -}}
-    
+
     {{ define "__text_alert_list" }}{{ range . }}
     {{ if .Labels.alertname }} <b>{{ .Labels.alertname }}</b> {{ end }}
     {{ template "title.alert.mbcaas" . }}
     <b>Start:</b> {{ .StartsAt.Format "2006-01-02 15:04:05" }}
-    
+
     <b>Labels:</b>
     {{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}
     {{ end }}
@@ -156,13 +158,13 @@ data:
     {{ range .Annotations.SortedPairs }} - {{ .Name }} = {{ .Value }}
     {{ end }}
     {{ end }}{{ end }}
-    
+
     {{ define "__text_alert_list_resolved" }}{{ range . }}
     {{ if .Labels.alertname }} <b>{{ .Labels.alertname }}</b> {{ end }}
     <b>{{ .Labels.severity | toUpper }}</b>
     <b>Start:</b> {{ .StartsAt.Format "2006-01-02 15:04:05" }}
     <b>End:</b> {{ .EndsAt.Format "2006-01-02 15:04:05" }}
-    
+
     <b>Labels:</b>
     {{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}
     {{ end }}
@@ -170,7 +172,7 @@ data:
     {{ range .Annotations.SortedPairs }} - {{ .Name }} = {{ .Value }}
     {{ end }}
     {{ end }}{{ end }}
-    
+
     {{ define "telegram.custom.message" }}
     {{ if gt (len .Alerts.Firing) 0 }}
     🚨🚨 <b>FIRING ALERTS</b> 🚨🚨
@@ -181,6 +183,7 @@ data:
     {{ template "__text_alert_list_resolved" .Alerts.Resolved }}
     {{ end }}
     {{ end }}
+
 
 ######################################################################
 # promtail
@@ -525,8 +528,8 @@ data:
               - localhost:9090
       - job_name: "kube-state-metrics"
         static_configs:
-          - targets: 
-              - "kube-state-metrics:8080"              
+          - targets:
+              - "kube-state-metrics:8080"
       - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         job_name: kubernetes-apiservers
         kubernetes_sd_configs:
