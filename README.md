@@ -1,8 +1,9 @@
-# kubectl-atomic_apply
+# katomik (WIP)
 
-`kubectl-atomic_apply` is a kubectl plugin that applies multiple Kubernetes manifests with **all-or-nothing**
-guarantees. Unlike `kubectl apply -f`, it ensures transactional behavior: if any resource fails to apply or reach a
-ready state, all previously applied resources are rolled back automatically.
+`katomik` - Atomic Apply for Kubernetes Manifests with Rollback Support.
+
+Applies multiple Kubernetes manifests with **all-or-nothing** guarantees. Like `kubectl apply -f`, but transactional:
+if any resource fails to apply or become ready, all previously applied resources are rolled back automatically.
 
 ---
 
@@ -22,7 +23,7 @@ ready state, all previously applied resources are rolled back automatically.
 ### Manual Installation
 
 1. Download the latest binary for your platform from
-   the [Releases page](https://github.com/hashmap-kz/kubectl-atomic_apply/releases).
+   the [Releases page](https://github.com/hashmap-kz/katomik/releases).
 2. Place the binary in your system's `PATH` (e.g., `/usr/local/bin`).
 
 ### Installation script
@@ -33,11 +34,11 @@ set -euo pipefail
 
 OS="$(uname | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')"
-TAG="$(curl -s https://api.github.com/repos/hashmap-kz/kubectl-atomic_apply/releases/latest | jq -r .tag_name)"
+TAG="$(curl -s https://api.github.com/repos/hashmap-kz/katomik/releases/latest | jq -r .tag_name)"
 
-curl -L "https://github.com/hashmap-kz/kubectl-atomic_apply/releases/download/${TAG}/kubectl-atomic_apply_${TAG}_${OS}_${ARCH}.tar.gz" |
+curl -L "https://github.com/hashmap-kz/katomik/releases/download/${TAG}/katomik_${TAG}_${OS}_${ARCH}.tar.gz" |
 tar -xzf - -C /usr/local/bin && \
-chmod +x /usr/local/bin/kubectl-atomic_apply
+chmod +x /usr/local/bin/katomik
 )
 ```
 
@@ -45,7 +46,7 @@ chmod +x /usr/local/bin/kubectl-atomic_apply
 
 ```bash
 brew tap hashmap-kz/homebrew-tap
-brew install kubectl-atomic_apply
+brew install katomik
 ```
 
 ---
@@ -54,19 +55,19 @@ brew install kubectl-atomic_apply
 
 ```bash
 # Apply multiple files atomically
-kubectl atomic-apply -f manifests/
+katomik apply -f manifests/
 
 # Read from stdin
-kubectl atomic-apply -f - < all.yaml
+katomik apply -f - < all.yaml
 
 # Apply recursively
-kubectl atomic-apply -R -f ./deploy/
+katomik apply -R -f ./deploy/
 
 # Set a custom timeout (default: 5m)
-kubectl atomic-apply --timeout 2m -f ./manifests/
+katomik apply --timeout 2m -f ./manifests/
 
 # Process and apply a manifest located on a remote server
-kubectl atomic-apply \
+katomik apply \
   -f https://raw.githubusercontent.com/user/repo/refs/heads/master/manifests/deployment.yaml
 ```
 
@@ -120,7 +121,7 @@ kubectl atomic-apply \
 ```
 cd test/integration/k8s
 bash 00-setup-kind.sh
-kubectl atomic-apply -f manifests/
+katomik apply -f manifests/
 ```
 
 ---
@@ -154,5 +155,5 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Feedback
 
-Have a feature request or issue? Feel free to [open an issue](https://github.com/hashmap-kz/kubectl-atomic_apply/issues)
+Have a feature request or issue? Feel free to [open an issue](https://github.com/hashmap-kz/katomik/issues)
 or submit a PR!

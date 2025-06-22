@@ -19,7 +19,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const binPath = "bin/kubectl-atomic_apply" // compiled in advance
+const binPath = "bin/katomik" // compiled in advance
 
 func kubeConfig() (*rest.Config, error) {
 	if cfg, err := rest.InClusterConfig(); err == nil {
@@ -59,7 +59,7 @@ data:
   foo: bar
 `), 0o644))
 
-	cmd := exec.Command(binPath, "-f", okFile, "--timeout", "10s")
+	cmd := exec.Command(binPath, "apply", "-f", okFile, "--timeout", "10s")
 	out, err := cmd.CombinedOutput()
 	t.Logf("first apply output:\n%s", string(out))
 	require.NoError(t, err, "first apply must succeed")
@@ -90,7 +90,7 @@ data:
   bad: data
 `), 0o644))
 
-	cmd = exec.Command(binPath, "-f", badFile, "--timeout", "10s")
+	cmd = exec.Command(binPath, "apply", "-f", badFile, "--timeout", "10s")
 	out, err = cmd.CombinedOutput()
 	t.Logf("second apply output (expected failure):\n%s", string(out))
 	require.Error(t, err, "second apply must fail to invoke rollback")

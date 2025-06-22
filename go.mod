@@ -1,4 +1,4 @@
-module github.com/hashmap-kz/kubectl-atomic_apply
+module github.com/hashmap-kz/katomik
 
 go 1.24.0
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hashmap-kz/kubectl-atomic_apply/internal/apply"
+	"github.com/hashmap-kz/katomik/internal/apply"
 
 	"github.com/spf13/pflag"
 
@@ -25,11 +25,11 @@ func NewAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 	aa := apply.AtomicApplyOptions{}
 
 	cmd := &cobra.Command{
-		Use:           "atomic-apply -f FILE [-f FILE...]",
+		Use:           "apply",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Short:         "Atomically apply Kubernetes manifests and roll back on failure",
-		Long: `atomic-apply is a transactional 'kubectl apply'.
+		Long: `A transactional 'kubectl apply'.
 
  * Applies a set of manifests in one transaction
  * Rolls back automatically if any object fails
@@ -37,13 +37,13 @@ func NewAtomicApplyCmd(streams genericiooptions.IOStreams) *cobra.Command {
 `,
 		Example: `
   # Apply a single manifest
-  atomic-apply -f deploy.yaml
+  katomik apply -f deploy.yaml
 
   # Apply everything under ./manifests, descending into sub-dirs
-  atomic-apply -f ./manifests -R
+  katomik apply -f ./manifests -R
 
   # Use a specific kube-context
-  atomic-apply -f app.yaml --context staging
+  katomik apply -f app.yaml --context staging
 `,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if len(aa.Filenames) == 0 {

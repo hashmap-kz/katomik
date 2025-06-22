@@ -1,5 +1,5 @@
 <!--
-Thank you very much for contributing code or documentation to kubectl-atomic_apply! Please
+Thank you very much for contributing code or documentation to katomik! Please
 fill out the following questions to make it easier for us to review your
 changes.
 
@@ -22,7 +22,7 @@ Link issues and relevant forum posts here.
 
 #### Checklist
 
-- [ ] I have read the [contribution guidelines](https://github.com/hashmap-kz/kubectl-atomic_apply/blob/master/CONTRIBUTING.md).
+- [ ] I have read the [contribution guidelines](https://github.com/hashmap-kz/katomik/blob/master/CONTRIBUTING.md).
 - [ ] I have added unit-tests for all changes in this PR if appropriate.
 - [ ] I have added integration-tests for all changes in this PR if appropriate.
 - [ ] I have added documentation for the changes if appropriate.

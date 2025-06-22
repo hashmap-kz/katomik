@@ -5,8 +5,8 @@ before:
     - go mod download
 
 builds:
-  - id: kubectl-atomic_apply
-    binary: kubectl-atomic_apply
+  - id: katomik
+    binary: katomik
     ldflags:
       - -s -w
     env:
@@ -27,7 +27,7 @@ checksum:
 
 archives:
   - ids:
-      - kubectl-atomic_apply
+      - katomik
     name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     wrap_in_directory: "false"
     formats: [ "tar.gz" ]
@@ -70,8 +70,8 @@ changelog:
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     maintainer: alexey.zh
-    homepage: "https://github.com/hashmap-kz/kubectl-atomic_apply"
-    description: "Kubectl plugin for atomic apply of multiple Kubernetes manifests with rollback on failure."
+    homepage: "https://github.com/hashmap-kz/katomik"
+    description: "Atomic apply of multiple Kubernetes manifests with rollback on failure."
     license: "Apache-2.0"
     formats:
       - deb
@@ -81,12 +81,12 @@ nfpms:
     section: utils
     contents:
       - src: ./LICENSE
-        dst: /usr/share/doc/kubectl-atomic_apply/copyright
+        dst: /usr/share/doc/katomik/copyright
         file_info:
           mode: 0644
 
 brews:
-  - name: kubectl-atomic_apply
+  - name: katomik
     repository:
       owner: hashmap-kz
       name: homebrew-tap
@@ -95,9 +95,9 @@ brews:
       name: alexey.zh
       email: mailbox.stdio@gmail.com
     homepage: https://github.com/hashmap-kz/homebrew-tap
-    description: "Kubectl plugin for atomic apply of multiple Kubernetes manifests with rollback on failure."
+    description: "Atomic apply of multiple Kubernetes manifests with rollback on failure."
     license: "Apache-2.0"
     install: |
-      bin.install "kubectl-atomic_apply"
+      bin.install "katomik"
     test: |
-      system "#{bin}/kubectl-atomic_apply"
+      system "#{bin}/katomik"
