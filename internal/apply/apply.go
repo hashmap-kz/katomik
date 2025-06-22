@@ -271,7 +271,18 @@ func prepareApplyPlan(
 		if err == nil {
 			it.existed = true
 			it.rv = cur.GetResourceVersion()
-			stripMeta(cur.Object) // minimise diff size for backup
+
+			// minimise diff size for backup:
+			// remove fields that should *not* be compared or preserved in the
+			// backup copy (status, managedFields, etc.). This keeps the backup small and
+			// avoids PATCH conflicts during rollback.
+			unstructured.RemoveNestedField(cur.Object, "metadata", "creationTimestamp")
+			unstructured.RemoveNestedField(cur.Object, "metadata", "generation")
+			unstructured.RemoveNestedField(cur.Object, "metadata", "resourceVersion")
+			unstructured.RemoveNestedField(cur.Object, "metadata", "uid")
+			unstructured.RemoveNestedField(cur.Object, "metadata", "managedFields")
+			unstructured.RemoveNestedField(cur.Object, "status")
+
 			it.backup, err = json.Marshal(cur.Object)
 			if err != nil {
 				return nil, err
@@ -356,18 +367,6 @@ func rollbackAndExit(plan []applyItem) error {
 	fmt.Println("rollback complete")
 	os.Exit(1) // terminate so caller does not continue after fatal failure
 	return nil // unreachable but required by compiler
-}
-
-// stripMeta removes fields that should *not* be compared or preserved in the
-// backup copy (status, managedFields, etc.). This keeps the backup small and
-// avoids PATCH conflicts during rollback.
-func stripMeta(o map[string]interface{}) {
-	delete(o, "status")
-	if m, ok := o["metadata"].(map[string]interface{}); ok {
-		for _, k := range []string{"managedFields", "resourceVersion", "uid", "creationTimestamp"} {
-			delete(m, k)
-		}
-	}
 }
 
 // waitStatus polls every resource in the plan until they all reach the desired

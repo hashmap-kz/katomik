@@ -92,24 +92,3 @@ metadata:
 		})
 	}
 }
-
-func TestStripMeta(t *testing.T) {
-	obj := map[string]interface{}{
-		"status": "something",
-		"metadata": map[string]interface{}{
-			"uid":               "123",
-			"resourceVersion":   "1",
-			"managedFields":     []string{"a"},
-			"creationTimestamp": "2024-01-01",
-			"name":              "test",
-		},
-	}
-	stripMeta(obj)
-
-	//nolint:errcheck
-	meta := obj["metadata"].(map[string]interface{})
-	assert.NotContains(t, obj, "status")
-	assert.NotContains(t, meta, "uid")
-	assert.NotContains(t, meta, "resourceVersion")
-	assert.Contains(t, meta, "name")
-}
