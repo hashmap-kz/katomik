@@ -1,5 +1,5 @@
 # Variables
-APP_NAME 	 := kubectl-atomic_apply
+APP_NAME 	 := katomik
 OUTPUT   	 := $(APP_NAME)
 COV_REPORT 	 := coverage.txt
 TEST_FLAGS 	 := -v -race -timeout 30s
