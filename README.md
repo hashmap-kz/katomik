@@ -93,11 +93,12 @@ katomik apply \
  - statefulset/postgres in pgrwl-test
  - configmap/prometheus-config in pgrwl-test
  - persistentvolumeclaim/prometheus-data in pgrwl-test
- - .....
-[watch] waiting: service/grafana in pgrwl-test -> actualStatus=Unknown expectedStatus=Current
-[watch] waiting: deployment/grafana in pgrwl-test -> actualStatus=Unknown expectedStatus=Current
-[watch] waiting: deployment/metrics-server in kube-system -> actualStatus=Unknown expectedStatus=Current
-[watch] waiting: apiservice/v1beta1.metrics.k8s.io in (cluster) -> actualStatus=Unknown expectedStatus=Current
+ - service/prometheus in pgrwl-test
+ - statefulset/prometheus in pgrwl-test
+ - persistentvolumeclaim/grafana-data in pgrwl-test
+ - ...
+[watch] waiting: status=Unknown     expected=Current     service/grafana in pgrwl-test
+[watch] waiting: status=Unknown     expected=Current     deployment/grafana in pgrwl-test
 ✓ Success
 ```
 
