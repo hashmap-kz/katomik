@@ -52,7 +52,6 @@ test-cov:
 ######################################################################
 
 .PHONY: test-integ
-test-integ: build
-	@rm -rf test/integration/bin && mv bin/ test/integration
+test-integ: install
 	@cd test/integration/k8s && bash 00-setup-kind.sh
 	go test -tags=integration -v ./test/integration/... | tee test-integ-fast.log
