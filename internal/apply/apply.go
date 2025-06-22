@@ -444,6 +444,8 @@ func waitStatus(
 // statusObserver prints a single line with the *first* non‑ready resource and
 // cancels the poller when the aggregate state matches the desired one.
 func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector.ObserverFunc {
+	printed := make(map[string]struct{})
+
 	return func(c *collector.ResourceStatusCollector, _ pollEvent.Event) {
 		var rss []*pollEvent.ResourceStatus
 		var nonReady []*pollEvent.ResourceStatus
@@ -486,7 +488,10 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector
 				first.Status,
 				desired,
 			)
-			fmt.Println(msg)
+			if _, ok := printed[msg]; !ok {
+				fmt.Println(msg)
+			}
+			printed[msg] = struct{}{}
 		}
 	}
 }
