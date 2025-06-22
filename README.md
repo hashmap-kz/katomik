@@ -91,24 +91,9 @@ katomik apply \
  - statefulset/postgres in pgrwl-test
  - configmap/prometheus-config in pgrwl-test
  - persistentvolumeclaim/prometheus-data in pgrwl-test
- - service/prometheus in pgrwl-test
- - statefulset/prometheus in pgrwl-test
- - persistentvolumeclaim/grafana-data in pgrwl-test
- - service/grafana in pgrwl-test
- - configmap/grafana-datasources in pgrwl-test
- - deployment/grafana in pgrwl-test
- - serviceaccount/metrics-server in kube-system
- - clusterrole/system:aggregated-metrics-reader in (cluster)
- - clusterrole/system:metrics-server in (cluster)
- - rolebinding/metrics-server-auth-reader in kube-system
- - clusterrolebinding/metrics-server:system:auth-delegator in (cluster)
- - clusterrolebinding/system:metrics-server in (cluster)
- - service/metrics-server in kube-system
- - deployment/metrics-server in kube-system
- - apiservice/v1beta1.metrics.k8s.io in (cluster)
+ - .....
 [watch] waiting: service/grafana in pgrwl-test -> actualStatus=Unknown expectedStatus=Current
 [watch] waiting: deployment/grafana in pgrwl-test -> actualStatus=Unknown expectedStatus=Current
-[watch] waiting: service/metrics-server in kube-system -> actualStatus=Unknown expectedStatus=Current
 [watch] waiting: deployment/metrics-server in kube-system -> actualStatus=Unknown expectedStatus=Current
 [watch] waiting: apiservice/v1beta1.metrics.k8s.io in (cluster) -> actualStatus=Unknown expectedStatus=Current
 ✓ Success
