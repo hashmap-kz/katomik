@@ -1,0 +1,40 @@
+@startuml flow
+
+title "katomik — Atomic Apply Flow"
+footer Kubernetes Manifest Atomic Apply Tool - katomik
+header "v1"
+scale max 860 height
+
+skinparam TitleFontSize 28
+
+box "User Input" #LightBlue
+  entity "Manifests\n(YAML / JSON)" as Manifests #DeepSkyBlue
+end box
+
+box "katomik CLI" #HoneyDew
+  participant "katomik" as Katomik #LightGreen
+end box
+
+box "Kubernetes Cluster" #AliceBlue
+  database "Kubernetes API Server" as KubeAPI #LightCyan
+end box
+
+group Decode and Prepare Plan
+  Manifests -> Katomik: Read and parse manifests
+  Katomik -> KubeAPI: Fetch live state
+  Katomik -> Katomik: Prepare apply + backup plan
+end
+
+group Apply Manifests
+  Katomik -> KubeAPI: Apply resources (Server-Side Apply)
+end
+
+group Wait for Readiness
+  Katomik -> KubeAPI: Poll for resource readiness
+end
+
+group Rollback on Failure
+  Katomik -> KubeAPI: If failure → rollback using backups
+end
+
+@enduml

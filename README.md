@@ -16,6 +16,8 @@ if any resource fails to apply or become ready, all previously applied resources
 * **Recursive**: Like `kubectl`, supports directories and `-R` for recursive traversal.
 * **STDIN support**: Use `-f -` to read from `stdin`.
 
+![CLI](https://github.com/hashmap-kz/assets/blob/main/katomik/flow-v1.png)
+
 ---
 
 ## Installation
