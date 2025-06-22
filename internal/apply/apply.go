@@ -483,12 +483,12 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector
 				if ns == "" {
 					ns = "(cluster)"
 				}
-				fmt.Printf("[watch] waiting: %s/%s in %s -> actualStatus=%s expectedStatus=%s\n",
+				fmt.Printf("[watch] waiting: status=%-11s expected=%-11s %s/%s in %s\n",
+					first.Status,
+					desired,
 					strings.ToLower(id.GroupKind.Kind),
 					strings.ToLower(id.Name),
 					ns,
-					first.Status,
-					desired,
 				)
 				printed[id] = struct{}{}
 			}
