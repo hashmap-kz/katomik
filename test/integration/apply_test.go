@@ -31,7 +31,7 @@ data:
 `), 0o644)
 	assert.NoError(t, err)
 
-	cmd := exec.Command("bin/katomik", "apply", "-f", file, "--timeout", "10s")
+	cmd := exec.Command("katomik", "apply", "-f", file, "--timeout", "10s")
 	out, err := cmd.CombinedOutput()
 	t.Logf("Output:\n%s", string(out))
 	assert.NoError(t, err)

@@ -9,9 +9,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const binPath = "bin/katomik" // compiled in advance
-
 func kubeConfig() (*rest.Config, error) {
+	cfg, err := k()
+	if err != nil {
+		return nil, err
+	}
+	cfg.QPS = 50
+	cfg.Burst = 100
+	return cfg, nil
+}
+
+func k() (*rest.Config, error) {
 	if cfg, err := rest.InClusterConfig(); err == nil {
 		return cfg, nil
 	}
