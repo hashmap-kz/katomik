@@ -4,7 +4,7 @@ containerdConfigPatches:
   - |
     [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
       endpoint = ["http://kind-registry:5000"]
-name: "pgrwl"
+name: "katomik"
 nodes:
   - role: control-plane
     extraPortMappings:

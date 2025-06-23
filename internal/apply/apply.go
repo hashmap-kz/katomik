@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/hashmap-kz/katomik/internal/printer"
+	"github.com/hashmap-kz/katomik/internal/utils"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -191,27 +192,52 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 // fails the function triggers a rollback *and* returns the error so the caller
 // can surface it.
 func applyPlanned(ctx context.Context, plan []applyItem) error {
-	for _, it := range plan {
-		objJSON, err := json.Marshal(it.obj)
-		if err != nil {
-			return rollbackAndExit(plan)
-		}
+	// contains only CRDs and Namespaces
+	var stageOne []applyItem
 
-		// Server‑Side Apply: create or patch atomically on the apiserver.
-		_, err = it.dr.Patch(
-			ctx,
-			it.obj.GetName(),
-			types.ApplyPatchType,
-			objJSON,
-			metav1.PatchOptions{
-				FieldManager: "atomic-apply",
-				Force:        ptr.To(true), // overwrite conflicts
-			},
-		)
-		if err != nil {
-			return rollbackAndExit(plan)
+	// contains all objects except for CRDs and Namespaces
+	var stageTwo []applyItem
+
+	// prepare stages
+	for _, u := range plan {
+		if utils.IsClusterDefinition(u.obj) {
+			stageOne = append(stageOne, u)
+		} else {
+			stageTwo = append(stageTwo, u)
 		}
 	}
+
+	// two stages for apply one by one
+	plans := [][]applyItem{
+		stageOne, stageTwo,
+	}
+
+	for _, stagePlan := range plans {
+		for _, it := range stagePlan {
+			objJSON, err := json.Marshal(it.obj)
+			if err != nil {
+				// rollback not a stage-plan, but the full
+				return rollbackAndExit(plan)
+			}
+
+			// Server‑Side Apply: create or patch atomically on the apiserver.
+			_, err = it.dr.Patch(
+				ctx,
+				it.obj.GetName(),
+				types.ApplyPatchType,
+				objJSON,
+				metav1.PatchOptions{
+					FieldManager: "atomic-apply",
+					Force:        ptr.To(true), // overwrite conflicts
+				},
+			)
+			if err != nil {
+				// rollback not a stage-plan, but the full
+				return rollbackAndExit(plan)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -304,7 +330,7 @@ func readDocs(runOpts *AtomicApplyRunOptions) ([]*unstructured.Unstructured, err
 		if err != nil {
 			return nil, fmt.Errorf("reading stdin: %w", err)
 		}
-		docs, err := readManifests(d)
+		docs, err := utils.ReadObjects(bytes.NewReader(d))
 		if err != nil {
 			return nil, err
 		}
@@ -323,7 +349,7 @@ func readDocs(runOpts *AtomicApplyRunOptions) ([]*unstructured.Unstructured, err
 		if err != nil {
 			return nil, err
 		}
-		docs, err := readManifests(fileContent)
+		docs, err := utils.ReadObjects(bytes.NewReader(fileContent))
 		if err != nil {
 			return nil, err
 		}

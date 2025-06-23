@@ -78,27 +78,33 @@ katomik apply \
 ## Example Output
 
 ```
-✓ Init clients
-✓ Decoding manifests
-✓ Preparing apply plan
-✓ Applying manifests
-✓ Waiting
-⏳ Waiting for resources:
- - namespace/pgrwl-test in (cluster)
- - configmap/postgresql-init-script in pgrwl-test
- - configmap/postgresql-envs in pgrwl-test
- - configmap/postgresql-conf in pgrwl-test
- - service/postgres in pgrwl-test
- - persistentvolumeclaim/postgres-data in pgrwl-test
- - statefulset/postgres in pgrwl-test
- - configmap/prometheus-config in pgrwl-test
- - persistentvolumeclaim/prometheus-data in pgrwl-test
- - service/prometheus in pgrwl-test
- - statefulset/prometheus in pgrwl-test
- - persistentvolumeclaim/grafana-data in pgrwl-test
- - ...
-[watch] waiting: status=Unknown     expected=Current     service/grafana in pgrwl-test
-[watch] waiting: status=Unknown     expected=Current     deployment/grafana in pgrwl-test
+# katomik apply -f test/integration/k8s/manifests/
+
++ waiting for resources
+| namespace/katomik-test                (cluster)
+| configmap/postgresql-init-script      katomik-test
+| configmap/postgresql-envs             katomik-test
+| configmap/postgresql-conf             katomik-test
+| service/postgres                      katomik-test
+| persistentvolumeclaim/postgres-data   katomik-test
+| statefulset/postgres                  katomik-test
+| configmap/prometheus-config           katomik-test
+| persistentvolumeclaim/prometheus-data katomik-test
+| service/prometheus                    katomik-test
+| statefulset/prometheus                katomik-test
+| persistentvolumeclaim/grafana-data    katomik-test
+| service/grafana                       katomik-test
+| configmap/grafana-datasources         katomik-test
+| deployment/grafana                    katomik-test
++ waiting for resources
+
++ watching
+| Service/grafana                       katomik-test Unknown
+| Deployment/grafana                    katomik-test Unknown
+| StatefulSet/postgres                  katomik-test InProgress
+| StatefulSet/prometheus                katomik-test InProgress
++ watching
+
 ✓ Success
 ```
 

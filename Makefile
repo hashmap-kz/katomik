@@ -54,4 +54,4 @@ test-cov:
 .PHONY: test-integ
 test-integ: install
 	@cd test/integration/k8s && bash 00-setup-kind.sh
-	go test -tags=integration -v ./test/integration/... | tee test-integ-fast.log
+	go test -tags=integration -v -count=1 ./test/integration/... | tee test-integ-fast.log

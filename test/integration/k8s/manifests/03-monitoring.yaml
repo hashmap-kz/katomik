@@ -4,7 +4,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: pgrwl-test
+  namespace: katomik-test
 data:
   prometheus.yml: |+
     global:
@@ -19,7 +19,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-data
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   storageClassName: standard
   volumeMode: Filesystem
@@ -34,7 +34,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: prometheus
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   type: NodePort
   selector:
@@ -50,7 +50,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: prometheus
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   replicas: 1
   serviceName: prometheus
@@ -90,7 +90,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: grafana-data
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   storageClassName: standard
   volumeMode: Filesystem
@@ -105,7 +105,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   type: NodePort
   selector:
@@ -121,7 +121,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
-  namespace: pgrwl-test
+  namespace: katomik-test
   labels:
     grafana_datasource: "1"
 data:
@@ -139,7 +139,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: pgrwl-test
+  namespace: katomik-test
 spec:
   replicas: 1
   selector:
