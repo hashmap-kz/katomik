@@ -3,8 +3,10 @@ package integration
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -17,6 +19,15 @@ func kubeConfig() (*rest.Config, error) {
 	cfg.QPS = 50
 	cfg.Burst = 100
 	return cfg, nil
+}
+
+func kubeClient(t *testing.T) *kubernetes.Clientset {
+	t.Helper()
+	cfg, err := kubeConfig()
+	assert.NoError(t, err)
+	client, err := kubernetes.NewForConfig(cfg)
+	assert.NoError(t, err)
+	return client
 }
 
 func k() (*rest.Config, error) {
