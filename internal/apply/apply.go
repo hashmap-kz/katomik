@@ -50,7 +50,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -526,29 +525,4 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status, calcLen *
 			}
 		}
 	}
-}
-
-// readManifests splits a byte slice that may contain one or many YAML/JSON
-// documents into a slice of *unstructured.Unstructured. Empty documents are
-// ignored, matching kubectl apply behaviour.
-//
-// No validation is performed here - caller is expected to do that later.
-func readManifests(data []byte) ([]*unstructured.Unstructured, error) {
-	var docs []*unstructured.Unstructured
-	stream := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
-
-	for {
-		obj := &unstructured.Unstructured{}
-		if err := stream.Decode(obj); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, err
-		}
-		if len(obj.Object) > 0 {
-			docs = append(docs, obj)
-		}
-	}
-
-	return docs, nil
 }
