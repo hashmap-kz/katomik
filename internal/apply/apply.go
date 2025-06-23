@@ -410,8 +410,8 @@ func waitStatus(
 		msg := fmt.Sprintf("| %-*s %-*s", calcLen.KindNameMaxLen, kn, calcLen.NamespaceMaxLen, ns)
 		fmt.Println(strings.ToLower(msg))
 	}
-	fmt.Println("+ waiting for resources\n")
-
+	fmt.Println("+ waiting for resources")
+	fmt.Println()
 	fmt.Println("+ watching")
 
 	// 2. Start status poller
