@@ -35,6 +35,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashmap-kz/katomik/internal/printer"
+
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -130,7 +132,6 @@ type AtomicApplyRunOptions struct {
 // invoked or rollback itself failed (the latter is included in the returned
 // error chain).
 func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
-	fmt.Println("✓ Init clients")
 	// 1. Build REST config & clients
 	cfg, err := runOpts.ConfigFlags.ToRESTConfig()
 	if err != nil {
@@ -159,28 +160,24 @@ func RunApply(ctx context.Context, runOpts *AtomicApplyRunOptions) error {
 	}
 
 	// 2. Decode all manifest files or stdin
-	fmt.Println("✓ Decoding manifests")
 	allDocs, err := readDocs(runOpts)
 	if err != nil {
 		return err
 	}
 
 	// 3. Build an apply plan (detect existing objects & backup)
-	fmt.Println("✓ Preparing apply plan")
 	plan, err := prepareApplyPlan(allDocs, mapper, runOpts, dyn)
 	if err != nil {
 		return err
 	}
 
 	// 4. Apply objects (SSA Patch or Create) - on *any* error rollback
-	fmt.Println("✓ Applying manifests")
 	if err := applyPlanned(ctx, plan); err != nil {
 		return err
 	}
 
 	// 5. Wait until every resource reaches the Current status, else rollback
 	//    (ctx carries the timeout specified by the user)
-	fmt.Println("✓ Waiting")
 	if err := waitStatus(ctx, plan, crClient, mapper); err != nil {
 		return rollbackAndExit(plan)
 	}
@@ -401,15 +398,21 @@ func waitStatus(
 		return nil
 	}
 
-	fmt.Println("⏳ Waiting for resources:")
+	// print waiting resources
+	calcLen := printer.CalcLen(resources)
+	fmt.Println("+ waiting for resources")
 	for _, id := range resources {
 		ns := id.Namespace
 		if ns == "" {
 			ns = "(cluster)"
 		}
-		msg := fmt.Sprintf(" - %s/%s in %s", id.GroupKind.Kind, id.Name, ns)
+		kn := fmt.Sprintf("%s/%s", id.GroupKind.Kind, id.Name)
+		msg := fmt.Sprintf("| %-*s %-*s", calcLen.KindNameMaxLen, kn, calcLen.NamespaceMaxLen, ns)
 		fmt.Println(strings.ToLower(msg))
 	}
+	fmt.Println("+ waiting for resources\n")
+
+	fmt.Println("+ watching")
 
 	// 2. Start status poller
 	poller := polling.NewStatusPoller(reader, mapper, polling.Options{})
@@ -417,8 +420,10 @@ func waitStatus(
 
 	// 3. Listen & aggregate
 	statusCollector := collector.NewResourceStatusCollector(resources)
-	done := statusCollector.ListenWithObserver(eventCh, statusObserver(cancel, kstatus.CurrentStatus))
+	done := statusCollector.ListenWithObserver(eventCh, statusObserver(cancel, kstatus.CurrentStatus, calcLen))
 	<-done
+
+	fmt.Println("+ watching")
 
 	// 4. "Global" error emitted by collector
 	if statusCollector.Error != nil {
@@ -443,7 +448,7 @@ func waitStatus(
 
 // statusObserver prints a single line with the *first* non‑ready resource and
 // cancels the poller when the aggregate state matches the desired one.
-func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector.ObserverFunc {
+func statusObserver(cancel context.CancelFunc, desired kstatus.Status, calcLen *printer.Len) collector.ObserverFunc {
 	printed := make(map[object.ObjMetadata]struct{})
 
 	return func(c *collector.ResourceStatusCollector, _ pollEvent.Event) {
@@ -483,12 +488,13 @@ func statusObserver(cancel context.CancelFunc, desired kstatus.Status) collector
 				if ns == "" {
 					ns = "(cluster)"
 				}
-				fmt.Printf("[watch] waiting: status=%-11s expected=%-11s %s/%s in %s\n",
-					first.Status,
-					desired,
-					strings.ToLower(id.GroupKind.Kind),
-					strings.ToLower(id.Name),
+				kn := fmt.Sprintf("%s/%s", id.GroupKind.Kind, id.Name)
+				fmt.Printf("| %-*s %-*s %s\n",
+					calcLen.KindNameMaxLen,
+					kn,
+					calcLen.NamespaceMaxLen,
 					ns,
+					first.Status,
 				)
 				printed[id] = struct{}{}
 			}

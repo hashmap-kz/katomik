@@ -44,8 +44,8 @@ func TestApplyUpdateOverExistingResources(t *testing.T) {
 
 	initialPath := filepath.Join(tmp, "initial.yaml")
 	updatedPath := filepath.Join(tmp, "updated.yaml")
-	_ = os.WriteFile(initialPath, []byte(initial), 0644)
-	_ = os.WriteFile(updatedPath, []byte(updated), 0644)
+	_ = os.WriteFile(initialPath, []byte(initial), 0o644)
+	_ = os.WriteFile(updatedPath, []byte(updated), 0o644)
 
 	_, _ = exec.Command("katomik", "apply", "-f", initialPath).CombinedOutput()
 	_, _ = exec.Command("katomik", "apply", "-f", updatedPath).CombinedOutput()
@@ -61,7 +61,7 @@ func TestApplyUpdateOverExistingResources(t *testing.T) {
 func TestEmptyOrNoopManifest(t *testing.T) {
 	tmp := t.TempDir()
 	noopPath := filepath.Join(tmp, "noop.yaml")
-	_ = os.WriteFile(noopPath, []byte("---"), 0644)
+	_ = os.WriteFile(noopPath, []byte("---"), 0o644)
 
 	out, err := exec.Command("katomik", "apply", "-f", noopPath).CombinedOutput()
 	t.Logf("output:\n%s", string(out))
@@ -75,7 +75,7 @@ func TestMultipleResourcesOfSameKind(t *testing.T) {
 
 	multi := baseDeployment + "\n" + strings.ReplaceAll(baseDeployment, "test-nginx", "test-nginx-2")
 	multiPath := filepath.Join(tmp, "multi.yaml")
-	_ = os.WriteFile(multiPath, []byte(multi), 0644)
+	_ = os.WriteFile(multiPath, []byte(multi), 0o644)
 
 	_, err := exec.Command("katomik", "apply", "-f", multiPath).CombinedOutput()
 	assert.NoError(t, err)
@@ -98,8 +98,8 @@ func TestRollbackAfterMixedApply(t *testing.T) {
 
 	goodPath := filepath.Join(tmp, "good.yaml")
 	badPath := filepath.Join(tmp, "bad.yaml")
-	_ = os.WriteFile(goodPath, []byte(good), 0644)
-	_ = os.WriteFile(badPath, []byte(bad), 0644)
+	_ = os.WriteFile(goodPath, []byte(good), 0o644)
+	_ = os.WriteFile(badPath, []byte(bad), 0o644)
 
 	_, _ = exec.Command("katomik", "apply", "-f", goodPath).CombinedOutput()
 	out, err := exec.Command("katomik", "apply", "-f", badPath, "--timeout=10s").CombinedOutput()
@@ -125,8 +125,8 @@ func TestRollbackHandlesDeletesCorrectly(t *testing.T) {
 
 	goodPath := filepath.Join(tmp, "good.yaml")
 	badPath := filepath.Join(tmp, "bad.yaml")
-	_ = os.WriteFile(goodPath, []byte(good), 0644)
-	_ = os.WriteFile(badPath, []byte(bad), 0644)
+	_ = os.WriteFile(goodPath, []byte(good), 0o644)
+	_ = os.WriteFile(badPath, []byte(bad), 0o644)
 
 	_, _ = exec.Command("katomik", "apply", "-f", goodPath).CombinedOutput()
 	_, err := exec.Command("katomik", "apply", "-f", badPath, "--timeout=10s").CombinedOutput()
@@ -150,7 +150,7 @@ func TestApplyWithCustomNamespace(t *testing.T) {
 
 	deploy := strings.ReplaceAll(baseDeployment, "test-nginx", "custom-ns-nginx")
 	deployPath := filepath.Join(tmp, "custom.yaml")
-	_ = os.WriteFile(deployPath, []byte(deploy), 0644)
+	_ = os.WriteFile(deployPath, []byte(deploy), 0o644)
 
 	_, err := exec.Command("katomik", "apply", "-f", deployPath, "--namespace", ns).CombinedOutput()
 	assert.NoError(t, err)
