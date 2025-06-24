@@ -32,9 +32,9 @@ import (
 	"io"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
+	"github.com/aquasecurity/table"
 	"github.com/hashmap-kz/katomik/internal/printer"
 	"github.com/hashmap-kz/katomik/internal/utils"
 
@@ -425,18 +425,19 @@ func waitStatus(
 
 	// print waiting resources
 	calcLen := printer.CalcLen(resources)
-	fmt.Println("+ waiting for resources")
+	t := table.New(os.Stdout)
+	t.SetRowLines(false)
+	t.SetHeaders("RESOURCE", "NAMESPACE")
 	for _, id := range resources {
 		ns := id.Namespace
 		if ns == "" {
 			ns = "(cluster)"
 		}
 		kn := fmt.Sprintf("%s/%s", id.GroupKind.Kind, id.Name)
-		msg := fmt.Sprintf("| %-*s %-*s", calcLen.KindNameMaxLen, kn, calcLen.NamespaceMaxLen, ns)
-		fmt.Println(strings.ToLower(msg))
+		t.AddRow(kn, ns)
 	}
-	fmt.Println("+ waiting for resources")
-	fmt.Println()
+	t.Render()
+
 	fmt.Println("+ watching")
 
 	// 2. Start status poller
