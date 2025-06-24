@@ -12,7 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
 const goodManifests = `---
@@ -80,11 +79,7 @@ func TestAtomicRollback(t *testing.T) {
 	assert.NoError(t, err)
 
 	// verify resources exist and are correct
-	cfg, err := kubeConfig()
-	assert.NoError(t, err)
-	client, err := kubernetes.NewForConfig(cfg)
-	assert.NoError(t, err)
-
+	client := kubeClient(t)
 	ns := "default"
 
 	deploy, err := client.AppsV1().Deployments(ns).Get(ctx, "nginx", metav1.GetOptions{})

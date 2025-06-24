@@ -80,23 +80,25 @@ katomik apply \
 ```
 # katomik apply -f test/integration/k8s/manifests/
 
-+ waiting for resources
-| namespace/katomik-test                (cluster)
-| configmap/postgresql-init-script      katomik-test
-| configmap/postgresql-envs             katomik-test
-| configmap/postgresql-conf             katomik-test
-| service/postgres                      katomik-test
-| persistentvolumeclaim/postgres-data   katomik-test
-| statefulset/postgres                  katomik-test
-| configmap/prometheus-config           katomik-test
-| persistentvolumeclaim/prometheus-data katomik-test
-| service/prometheus                    katomik-test
-| statefulset/prometheus                katomik-test
-| persistentvolumeclaim/grafana-data    katomik-test
-| service/grafana                       katomik-test
-| configmap/grafana-datasources         katomik-test
-| deployment/grafana                    katomik-test
-+ waiting for resources
+┌───────────────────────────────────────┬──────────────┐
+│               RESOURCE                │  NAMESPACE   │
+├───────────────────────────────────────┼──────────────┤
+│ Namespace/katomik-test                │ (cluster)    │
+│ ConfigMap/postgresql-init-script      │ katomik-test │
+│ ConfigMap/postgresql-envs             │ katomik-test │
+│ ConfigMap/postgresql-conf             │ katomik-test │
+│ Service/postgres                      │ katomik-test │
+│ PersistentVolumeClaim/postgres-data   │ katomik-test │
+│ StatefulSet/postgres                  │ katomik-test │
+│ ConfigMap/prometheus-config           │ katomik-test │
+│ PersistentVolumeClaim/prometheus-data │ katomik-test │
+│ Service/prometheus                    │ katomik-test │
+│ StatefulSet/prometheus                │ katomik-test │
+│ PersistentVolumeClaim/grafana-data    │ katomik-test │
+│ Service/grafana                       │ katomik-test │
+│ ConfigMap/grafana-datasources         │ katomik-test │
+│ Deployment/grafana                    │ katomik-test │
+└───────────────────────────────────────┴──────────────┘
 
 + watching
 | Service/grafana                       katomik-test Unknown
