@@ -3,7 +3,7 @@ module github.com/hashmap-kz/katomik
 go 1.24.0
 
 require (
-	github.com/aquasecurity/table v1.10.0
+	github.com/aquasecurity/table v1.11.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	github.com/stretchr/testify v1.10.0
